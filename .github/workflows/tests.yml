@@ -1,0 +1,18 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pytest pyflakes -r requirements.txt
+      - run: pyflakes davigen tests scripts
+      - run: pytest -q
+      - run: zsh -n install.sh && zsh -n uninstall.sh

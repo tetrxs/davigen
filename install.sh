@@ -133,6 +133,7 @@ if [[ "$PYHOME" == *" "* ]]; then
   ln -sfn "$PYHOME" "$HOME/.davigen/python"
   PYHOME="$HOME/.davigen/python"
 fi
+BEFORE="$(launchctl getenv PYTHON3HOME 2>/dev/null || true)"
 launchctl setenv PYTHON3HOME "$PYHOME"
 if [[ -z "${DAVIGEN_NO_AUTOSTART:-}" ]]; then
   mkdir -p "${AGENT:h}"
@@ -153,7 +154,7 @@ PLIST
 fi
 
 echo
-if pgrep -qf "MacOS/Resolve"; then
+if [[ "$BEFORE" != "$PYHOME" ]] && pgrep -qf "MacOS/Resolve"; then
   warn "Resolve is running – quit and reopen it once so it picks up davigen's Python."
 fi
 echo "Done. In Resolve: Workspace → Scripts → davigen"
