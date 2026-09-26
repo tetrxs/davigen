@@ -1,0 +1,12 @@
+# local runtime (downloaded by install.sh)
+/runtime/
+.venv/
+
+# per-Mac state: settings, project list, camera catalog, downloaded/baked LUTs, transfer journals
+/data/
+
+# python / tooling
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

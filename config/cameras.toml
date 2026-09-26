@@ -1,0 +1,163 @@
+# Known cameras. `match` is compared (case-insensitive, regex) against the model string
+# found in the clip metadata. Unknown cameras still work: davigen derives a name from
+# make + model and lets you pick the profile in the app.
+#
+# key       -> used in bin/group names (G_<key>_<PROFILE>)
+# profiles  -> log profiles this camera can record (first = default guess)
+
+[brands]
+panasonic = ["panasonic"]
+sony = ["sony"]
+canon = ["canon"]
+nikon = ["nikon"]
+fujifilm = ["fujifilm", "fuji"]
+dji = ["dji"]
+apple = ["apple"]
+blackmagic = ["blackmagic"]
+insta360 = ["insta360", "arashi"]
+gopro = ["gopro"]
+leica = ["leica"]
+arri = ["arri"]
+samsung = ["samsung"]
+xiaomi = ["xiaomi"]
+red = ["red digital", "red "]
+
+[[camera]]
+key = "LUMIX_S1II"
+name = "Panasonic LUMIX S1II"
+brand = "panasonic"
+match = "DC-S1M2$|S1II|S1 ?II$"
+profiles = ["VLOG", "HLG", "REC709"]
+
+[[camera]]
+key = "LUMIX_S1IIE"
+name = "Panasonic LUMIX S1IIE"
+brand = "panasonic"
+match = "DC-S1M2ES|S1IIE"
+profiles = ["VLOG", "HLG", "REC709"]
+
+[[camera]]
+key = "LUMIX_S5II"
+name = "Panasonic LUMIX S5II"
+brand = "panasonic"
+match = "DC-S5M2$|S5II$"
+profiles = ["VLOG", "HLG", "REC709"]
+
+[[camera]]
+key = "LUMIX_S5IIX"
+name = "Panasonic LUMIX S5IIX"
+brand = "panasonic"
+match = "DC-S5M2X|S5IIX"
+profiles = ["VLOG", "HLG", "REC709"]
+
+[[camera]]
+key = "LUMIX_GH7"
+name = "Panasonic LUMIX GH7"
+brand = "panasonic"
+match = "DC-GH7|GH7"
+profiles = ["VLOG", "HLG", "REC709"]
+
+[[camera]]
+key = "LUMIX_S9"
+name = "Panasonic LUMIX S9"
+brand = "panasonic"
+match = "DC-S9|^S9$"
+profiles = ["VLOG", "REC709"]
+
+[[camera]]
+key = "DJI_AIR3"
+name = "DJI Air 3"
+brand = "dji"
+match = "Air ?3$|FC828[24]"
+profiles = ["DLOGM", "HLG", "REC709"]
+
+[[camera]]
+key = "DJI_AIR3S"
+name = "DJI Air 3S"
+brand = "dji"
+match = "Air ?3S"
+profiles = ["DLOGM", "HLG", "REC709"]
+
+[[camera]]
+key = "DJI_MINI4PRO"
+name = "DJI Mini 4 Pro"
+brand = "dji"
+match = "Mini ?4 ?Pro|FC8482"
+profiles = ["DLOGM", "HLG", "REC709"]
+
+[[camera]]
+key = "DJI_MAVIC3"
+name = "DJI Mavic 3"
+brand = "dji"
+match = "Mavic ?3|L2D-20c"
+profiles = ["DLOG", "DLOGM", "HLG", "REC709"]
+
+[[camera]]
+key = "DJI_OSMO_POCKET3"
+name = "DJI Osmo Pocket 3"
+brand = "dji"
+match = "Pocket ?3|OsmoPocket3"
+profiles = ["DLOGM", "HLG", "REC709"]
+
+[[camera]]
+key = "SONY_A7IV"
+name = "Sony α7 IV"
+brand = "sony"
+match = "ILCE-7M4"
+profiles = ["SLOG3_CINE", "SLOG3", "HLG", "REC709"]
+
+[[camera]]
+key = "SONY_FX3"
+name = "Sony FX3"
+brand = "sony"
+match = "ILME-FX3"
+profiles = ["SLOG3_CINE", "SLOG3", "HLG", "REC709"]
+
+[[camera]]
+key = "CANON_R5"
+name = "Canon EOS R5"
+brand = "canon"
+match = "EOS R5$"
+profiles = ["CLOG3", "HLG", "REC709"]
+
+[[camera]]
+key = "FUJI_XH2S"
+name = "Fujifilm X-H2S"
+brand = "fujifilm"
+match = "X-H2S"
+profiles = ["FLOG2", "FLOG", "HLG", "REC709"]
+
+[[camera]]
+key = "NIKON_Z6III"
+name = "Nikon Z6III"
+brand = "nikon"
+match = "Z ?6_?3|Z6III"
+profiles = ["NLOG", "HLG", "REC709"]
+
+[[camera]]
+key = "IPHONE"
+name = "Apple iPhone"
+brand = "apple"
+match = "iPhone"
+profiles = ["APPLE_LOG", "HLG", "REC709"]
+
+[[camera]]
+key = "GOPRO_HERO13"
+name = "GoPro HERO13 Black"
+brand = "gopro"
+match = "HERO13"
+profiles = ["GOPRO_GPLOG", "GOPRO_PROTUNE", "REC709"]
+
+[[camera]]
+key = "GOPRO_MAX2"
+name = "GoPro MAX2"
+brand = "gopro"
+match = "MAX ?2"
+profiles = ["GOPRO_GPLOG2", "GOPRO_PROTUNE", "REC709"]
+
+[[camera]]
+key = "INSTA360_X5"
+name = "Insta360 X5"
+brand = "insta360"
+match = "X5"
+profiles = ["ILOG", "REC709"]

@@ -1,0 +1,285 @@
+# Log/colour profiles and where davigen gets the transform to DaVinci Wide Gamut / Intermediate.
+#
+# Every profile lists up to three sources; davigen uses the first that works on this machine:
+#   1. cst    – Resolve's own Color Space Transform (color_space + gamma enums). Only used when the
+#               installed Resolve offers both enums (read from Resolve itself, so updates count).
+#   2. math   – the published log formula via colour-science (math_curve + math_gamut), exact.
+#               math_curve may be a colour-science name or "logbase:<N>".
+#   3. vendor – the manufacturer's official LUT, found in the manufacturer's download catalog
+#               (davigen/providers/<vendor>.py). Needs "online sources" enabled.
+# display-referred profiles (HLG, Rec.709) use tone_mapping = "default" so the output round-trips.
+
+[working]
+color_space = "DWG_COLORSPACE"
+gamma = "DAV_INTER_OETF_GAMMA"
+
+[outputs.REC709_G24]
+label = "Rec.709 Gamma 2.4"
+color_space = "REC709_COLORSPACE"
+gamma = "TWOPOINTFOUR_GAMMA"
+tone_mapping = "default"   # DaVinci tone mapping
+
+# ------------------------------------------------------------------ Panasonic / Leica
+[profiles.VLOG]
+label = "Panasonic V-Log / V-Gamut"
+short = "VLOG"
+color_space = "VLOG_COLORSPACE"
+gamma = "PANASONIC_VLOG_GAMMA"
+math_curve = "V-Log"
+math_gamut = "V-Gamut"
+brands = ["panasonic"]
+hints = ["v-log", "vlog"]
+
+[profiles.LLOG]
+label = "Leica L-Log / Rec.2020"
+short = "LLOG"
+color_space = "REC2020_COLORSPACE"
+gamma = "LLOG_OETF_GAMMA"
+math_curve = "L-Log"
+math_gamut = "ITU-R BT.2020"
+brands = ["leica"]
+hints = ["l-log", "llog"]
+
+# ------------------------------------------------------------------------------ Sony
+[profiles.SLOG3_CINE]
+label = "Sony S-Log3 / S-Gamut3.Cine"
+short = "SLOG3"
+color_space = "SGAMUT3CINE_COLORSPACE"
+gamma = "SONY_SLOG3_GAMMA"
+math_curve = "S-Log3"
+math_gamut = "S-Gamut3.Cine"
+brands = ["sony"]
+hints = ["s-log3-cine", "slog3cine", "s-gamut3.cine"]
+
+[profiles.SLOG3]
+label = "Sony S-Log3 / S-Gamut3"
+short = "SLOG3SG3"
+color_space = "SGAMUT3_COLORSPACE"
+gamma = "SONY_SLOG3_GAMMA"
+math_curve = "S-Log3"
+math_gamut = "S-Gamut3"
+brands = ["sony"]
+hints = ["s-log3", "slog3"]
+
+[profiles.SLOG2]
+label = "Sony S-Log2 / S-Gamut"
+short = "SLOG2"
+color_space = "SGAMUT_COLORSPACE"
+gamma = "SONY_SLOG2_GAMMA"
+math_curve = "S-Log2"
+math_gamut = "S-Gamut"
+brands = ["sony"]
+hints = ["s-log2", "slog2"]
+
+# ----------------------------------------------------------------------------- Canon
+[profiles.CLOG3]
+label = "Canon Log 3 / Cinema Gamut"
+short = "CLOG3"
+color_space = "CANONLOG3_COLORSPACE"
+gamma = "CANONLOG3_GAMMA"
+math_curve = "Canon Log 3"
+math_gamut = "Cinema Gamut"
+brands = ["canon"]
+hints = ["canon log 3", "c-log3", "clog3"]
+
+[profiles.CLOG2]
+label = "Canon Log 2 / Cinema Gamut"
+short = "CLOG2"
+color_space = "CANONLOG2_COLORSPACE"
+gamma = "CANONLOG2_GAMMA"
+math_curve = "Canon Log 2"
+math_gamut = "Cinema Gamut"
+brands = ["canon"]
+hints = ["canon log 2", "c-log2", "clog2"]
+
+# -------------------------------------------------------------------------- Fujifilm
+[profiles.FLOG2]
+label = "Fujifilm F-Log2 / F-Gamut"
+short = "FLOG2"
+color_space = "REC2020_COLORSPACE"
+gamma = "FLOG2_OETF_GAMMA"
+math_curve = "F-Log2"
+math_gamut = "F-Gamut"
+brands = ["fujifilm"]
+hints = ["f-log2", "flog2"]
+
+[profiles.FLOG2C]
+label = "Fujifilm F-Log2 C / F-Gamut C"
+short = "FLOG2C"
+color_space = "FGAMUT_C_COLORSPACE"
+gamma = "FLOG2_OETF_GAMMA"
+math_curve = "F-Log2"
+math_gamut = "F-Gamut C"
+brands = ["fujifilm"]
+hints = ["f-log2 c", "flog2c", "f-gamut c"]
+
+[profiles.FLOG]
+label = "Fujifilm F-Log / F-Gamut"
+short = "FLOG"
+color_space = "REC2020_COLORSPACE"
+gamma = "FLOG_OETF_GAMMA"
+math_curve = "F-Log"
+math_gamut = "F-Gamut"
+brands = ["fujifilm"]
+hints = ["f-log", "flog"]
+
+# ----------------------------------------------------------------------------- Nikon
+[profiles.NLOG]
+label = "Nikon N-Log / N-Gamut"
+short = "NLOG"
+color_space = "REC2020_COLORSPACE"
+gamma = "NLOG_OETF_GAMMA"
+math_curve = "N-Log"
+math_gamut = "N-Gamut"
+brands = ["nikon"]
+hints = ["n-log", "nlog"]
+
+# ------------------------------------------------------------------------------- DJI
+[profiles.DLOG]
+label = "DJI D-Log / D-Gamut"
+short = "DLOG"
+color_space = "DGAMUT_COLORSPACE"
+gamma = "DJI_DLOG_GAMMA"
+math_curve = "D-Log"
+math_gamut = "DJI D-Gamut"
+brands = ["dji"]
+hints = ["d-log", "dlog"]
+
+[profiles.DLOGM]
+label = "DJI D-Log M"
+short = "DLOGM"
+# no public formula and (so far) no Resolve CST: official DJI LUT per model
+color_space = "DGAMUT_COLORSPACE"
+gamma = "DJI_DLOGM_GAMMA"
+vendor = "dji"
+vendor_match = "D-Log ?M to Rec\\.?709"
+vendor_lut_output = "REC709_G24"
+brands = ["dji"]
+hints = ["d-log m", "dlogm", "d-log-m"]
+
+# ----------------------------------------------------------------------------- GoPro
+[profiles.GOPRO_GPLOG2]
+label = "GoPro GP-Log2 / Rec.2020"
+short = "GPLOG2"
+math_curve = "logbase:600"          # published by GoPro Labs (gopro.github.io/labs/gplog2)
+math_gamut = "ITU-R BT.2020"
+brands = ["gopro"]
+hints = ["gp-log2", "gplog2", "log600"]
+
+[profiles.GOPRO_PROTUNE]
+label = "GoPro Protune Flat / Protune Native"
+short = "PROTUNE"
+math_curve = "Protune"
+math_gamut = "Protune Native"
+brands = ["gopro"]
+hints = ["protune"]
+
+[profiles.GOPRO_GPLOG]
+label = "GoPro GP-Log (HERO12/13)"
+short = "GPLOG"
+vendor = "gopro"
+vendor_match = "GP-?Log.*(709|Technical)"
+vendor_lut_output = "REC709_G24"
+brands = ["gopro"]
+hints = ["gp-log", "gplog", "log400"]
+
+# ---------------------------------------------------------------------- 360 / phones
+[profiles.ILOG]
+label = "Insta360 I-Log / Rec.709"
+short = "ILOG"
+color_space = "REC709_COLORSPACE"
+gamma = "INSTA360_ILOG_GAMMA"
+brands = ["insta360"]
+hints = ["i-log", "ilog"]
+
+[profiles.APPLE_LOG]
+label = "Apple Log / Rec.2020"
+short = "ALOG"
+color_space = "REC2020_COLORSPACE"
+gamma = "APPLE_LOG_GAMMA"
+math_curve = "Apple Log Profile"
+math_gamut = "ITU-R BT.2020"
+brands = ["apple"]
+hints = ["apple log", "applelog"]
+
+[profiles.SAMSUNG_LOG]
+label = "Samsung Log / Rec.2020"
+short = "SLOG"
+color_space = "REC2020_COLORSPACE"
+gamma = "SAMSUNG_LOG_GAMMA"
+brands = ["samsung"]
+hints = ["samsung log"]
+
+[profiles.MILOG]
+label = "Xiaomi Mi-Log / Rec.2020"
+short = "MILOG"
+math_curve = "Mi-Log"
+math_gamut = "ITU-R BT.2020"
+brands = ["xiaomi"]
+hints = ["mi-log", "milog"]
+
+[profiles.FILMIC_PRO]
+label = "Filmic Pro Log (v6)"
+short = "FILMIC"
+math_curve = "Filmic Pro 6"
+math_gamut = "ITU-R BT.709"
+brands = ["apple", "samsung", "xiaomi"]   # smartphone app
+hints = ["filmic"]
+
+# ----------------------------------------------------------------- cinema / Blackmagic
+[profiles.BMD_FILM_GEN5]
+label = "Blackmagic Film Gen 5 / Wide Gamut"
+short = "BMDFILM5"
+color_space = "BMDVIDEOV5_COLORSPACE"
+gamma = "BMDFILMV5_GAMMA"
+brands = ["blackmagic"]
+hints = ["film gen 5", "gen5"]
+
+[profiles.LOGC3]
+label = "ARRI LogC3 / Wide Gamut 3"
+short = "LOGC3"
+color_space = "ALEXA3_COLORSPACE"
+gamma = "LOGC_EI800_GAMMA"
+math_curve = "ARRI LogC3"
+math_gamut = "ARRI Wide Gamut 3"
+brands = ["arri"]
+hints = ["logc3", "logc"]
+
+[profiles.LOGC4]
+label = "ARRI LogC4 / Wide Gamut 4"
+short = "LOGC4"
+color_space = "ARRI_LOGC4_COLORSPACE"
+gamma = "LOGC4_EI800_GAMMA"
+math_curve = "ARRI LogC4"
+math_gamut = "ARRI Wide Gamut 4"
+brands = ["arri"]
+hints = ["logc4"]
+
+[profiles.RED_LOG3G10]
+label = "RED Log3G10 / RWG"
+short = "LOG3G10"
+color_space = "RWG_COLORSPACE"
+gamma = "RED_LOG3G10_GAMMA"
+math_curve = "Log3G10"
+math_gamut = "REDWideGamutRGB"
+brands = ["red"]
+hints = ["log3g10"]
+
+# ------------------------------------------------------------------- display-referred
+[profiles.HLG]
+label = "HLG (Rec.2100)"
+short = "HLG"
+color_space = "REC2020_COLORSPACE"
+gamma = "REC2100_HLG_OETF_GAMMA"
+tone_mapping = "default"
+brands = ["*"]
+hints = ["hlg", "hybrid"]
+
+[profiles.REC709]
+label = "Standard / Rec.709 (no log)"
+short = "709"
+color_space = "REC709_COLORSPACE"
+gamma = "TWOPOINTFOUR_GAMMA"
+tone_mapping = "default"
+brands = ["*"]
+hints = ["rec.709", "bt.709", "standard", "normal"]

@@ -1,0 +1,183 @@
+# davigen – the standard every new project gets.
+# Everything here is a default; the app lets you change format, frame rate and exports per project.
+
+[project]
+fps = 25
+aspect = "3:2"                    # master aspect ratio (see [[aspect]] below)
+transfer = "move"                 # move | copy | leave  – how footage gets into the project folder
+default_root = "~/Movies/davigen" # where new project folders are created
+fps_choices = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60]
+# Resolve (free version) renders timelines up to UHD: long side <= 3840, short side <= 2160
+free_max = [3840, 2160]
+
+[project.settings]
+# Project.SetSetting keys/values verified against Resolve 21
+colorScienceMode = "davinciYRGB"
+colorSpaceTimeline = "DaVinci WG/Intermediate"
+colorSpaceOutput = "Rec.709 Gamma 2.4"
+timelineInputResMismatchBehavior = "scaleToCrop"
+# proxy mode first – setting it resets the proxy resolution
+perfProxyMediaMode = "1"
+perfProxyResolutionRatio = "half"
+perfRenderCacheMode = "smart"
+
+# Master formats. The first preset that fits the Resolve edition is the default,
+# unless the footage suggests something else.
+[[aspect]]
+id = "3:2"
+label = "3:2 · open gate / full sensor"
+presets = [[5952, 3968], [4320, 2880], [3240, 2160]]
+
+[[aspect]]
+id = "16:9"
+label = "16:9 · widescreen"
+presets = [[7680, 4320], [5760, 3240], [3840, 2160], [2560, 1440], [1920, 1080]]
+
+[[aspect]]
+id = "17:9"
+label = "17:9 · DCI"
+presets = [[4096, 2160], [2048, 1080]]
+
+[[aspect]]
+id = "4:3"
+label = "4:3 · open gate (MFT) / anamorphic"
+presets = [[5760, 4320], [2880, 2160], [1440, 1080]]
+
+[[aspect]]
+id = "2.39:1"
+label = "2.39:1 · cinemascope"
+presets = [[3840, 1608], [1920, 804]]
+
+[[aspect]]
+id = "9:16"
+label = "9:16 · vertical"
+presets = [[2160, 3840], [1080, 1920]]
+
+[[aspect]]
+id = "4:5"
+label = "4:5 · portrait feed"
+presets = [[2160, 2700], [1080, 1350]]
+
+[[aspect]]
+id = "1:1"
+label = "1:1 · square"
+presets = [[2160, 2160], [1080, 1080]]
+
+# Physical folder tree on disk (relative to the project folder). Export folders are added per delivery.
+[folders]
+tree = [
+  "00_ADMIN/PROJECT_INFO", "00_ADMIN/VERSION_HISTORY", "00_ADMIN/REFERENCES",
+  "01_MEDIA/90_AUDIO", "01_MEDIA/91_STILLS", "01_MEDIA/92_STOCK",
+  "02_RESOLVE/01_PROJECT_FILES", "02_RESOLVE/02_BACKUPS", "02_RESOLVE/03_GALLERY",
+  "03_WORK/PROXIES", "03_WORK/CACHE", "03_WORK/OPTIMIZED_MEDIA",
+  "04_ASSETS/MUSIC", "04_ASSETS/SFX", "04_ASSETS/GRAPHICS", "04_ASSETS/LOGOS",
+  "04_ASSETS/FONTS", "04_ASSETS/LUTS", "04_ASSETS/VFX",
+  "05_EXPORTS/01_DRAFTS", "05_EXPORTS/02_REVIEW",
+  "99_ARCHIVE",
+]
+# Camera media folders are added per camera: 01_MEDIA/01_<CAMERA>, 02_<CAMERA> … (90+ reserved)
+media_root = "01_MEDIA"
+gallery = "02_RESOLVE/03_GALLERY"
+
+# Media Pool bins. Camera bins are added under 01_FOOTAGE automatically.
+[bins]
+tree = [
+  "00_ADMIN/PROJECT_INFO", "00_ADMIN/REFERENCES", "00_ADMIN/VERSIONS",
+  "01_FOOTAGE",
+  "02_SELECTS/01_A_ROLL", "02_SELECTS/02_B_ROLL", "02_SELECTS/03_DRONE",
+  "02_SELECTS/04_FAVORITES", "02_SELECTS/05_FINAL_SELECTS",
+  "03_TIMELINES/01_ASSEMBLY", "03_TIMELINES/02_EDIT", "03_TIMELINES/03_MASTER",
+  "03_TIMELINES/04_DELIVERABLES",
+  "04_AUDIO/MUSIC", "04_AUDIO/VO", "04_AUDIO/DIALOGUE", "04_AUDIO/SFX", "04_AUDIO/AMBIENCE",
+  "05_GRAPHICS/TITLES", "05_GRAPHICS/LOWER_THIRDS", "05_GRAPHICS/LOGOS", "05_GRAPHICS/VFX",
+  "06_EXPORTS",
+  "07_POWERGRADES",
+  "08_REFERENCES",
+]
+footage = "01_FOOTAGE"
+
+# Working timelines in master resolution. {aspect} and {fps} are filled in, e.g. TL_01_ASSEMBLY_3X2_25_v001.
+[[timelines]]
+role = "assembly"
+name = "TL_01_ASSEMBLY_{aspect}_{fps}_v001"
+bin = "03_TIMELINES/01_ASSEMBLY"
+fill_with_footage = true
+
+[[timelines]]
+role = "edit"
+name = "TL_02_EDIT_{aspect}_{fps}_v001"
+bin = "03_TIMELINES/02_EDIT"
+
+[[timelines]]
+role = "master"
+name = "TL_03_MASTER_{aspect}_{fps}_v001"
+bin = "03_TIMELINES/03_MASTER"
+
+[tracks]
+video = ["MAIN", "SECONDARY", "BROLL", "ADJUSTMENT", "TITLES"]
+audio = ["PRODUCTION", "DIALOGUE_VO", "MUSIC", "SFX", "AMBIENCE", "CAMERA_SCRATCH"]
+
+[color]
+output_profile = "REC709_G24"
+
+# Deliveries. "master" renders the master timeline; every other entry gets its own timeline
+# (TL_04_DELIVERY_16X9_25_v001 …) at its resolution, reframed from the master.
+[[deliver]]
+id = "master"
+label = "Master · project resolution · ProRes 422 HQ"
+resolution = "master"
+format = "mov"
+codec = "ProRes422HQ"
+folder = "05_EXPORTS/05_MASTER"
+filename = "{project}_MASTER_{aspect}_v001"
+default = true
+
+[[deliver]]
+id = "16x9_uhd"
+label = "16:9 UHD · YouTube · H.265"
+resolution = [3840, 2160]
+format = "mp4"
+codec = "H265"
+folder = "05_EXPORTS/03_16X9"
+filename = "{project}_WEB_16X9_4K_v001"
+default = true
+
+[[deliver]]
+id = "9x16_1080"
+label = "9:16 1080×1920 · Reels / Shorts / TikTok · H.264"
+resolution = [1080, 1920]
+format = "mp4"
+codec = "H264"
+folder = "05_EXPORTS/04_9X16"
+filename = "{project}_SOCIAL_9X16_1080_v001"
+default = true
+
+[[deliver]]
+id = "16x9_hd"
+label = "16:9 HD · H.264"
+resolution = [1920, 1080]
+format = "mp4"
+codec = "H264"
+folder = "05_EXPORTS/03_16X9"
+filename = "{project}_WEB_16X9_HD_v001"
+default = false
+
+[[deliver]]
+id = "4x5_1080"
+label = "4:5 1080×1350 · Instagram feed · H.264"
+resolution = [1080, 1350]
+format = "mp4"
+codec = "H264"
+folder = "05_EXPORTS/06_4X5"
+filename = "{project}_SOCIAL_4X5_1080_v001"
+default = false
+
+[[deliver]]
+id = "1x1_1080"
+label = "1:1 1080×1080 · square · H.264"
+resolution = [1080, 1080]
+format = "mp4"
+codec = "H264"
+folder = "05_EXPORTS/07_1X1"
+filename = "{project}_SOCIAL_1X1_1080_v001"
+default = false

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>davigen</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#" id="brand">davigen</a>
+  <nav class="steps" id="steps" hidden></nav>
+  <div class="env" id="env"></div>
+</header>
+
+<div class="offline" id="offline" hidden>
+  <div>
+    <h1>davigen isn't running</h1>
+    <p>This page talks to a small helper that runs inside DaVinci Resolve. It stopped – Resolve was closed, the
+      script ended after a long idle time, or it was started again in another window.</p>
+    <ol>
+      <li>Open DaVinci Resolve.</li>
+      <li>Choose <b>Workspace → Scripts → davigen</b>.</li>
+    </ol>
+    <p class="muted">A new window opens. This one can be closed.</p>
+    <button class="secondary" id="retry">Try to reconnect</button>
+  </div>
+</div>
+
+<main id="app">
+  <!-- HOME ------------------------------------------------------------------ -->
+  <section class="view" data-view="home">
+    <div id="banners"></div>
+
+    <div class="home-grid">
+      <div>
+        <div class="section-head"><h2>Open in Resolve</h2></div>
+        <div class="panel" id="current"><p class="muted">Loading…</p></div>
+
+        <div class="section-head">
+          <h2>Projects</h2>
+          <button class="primary" id="new-project">New project</button>
+        </div>
+        <div class="panel list" id="projects"></div>
+      </div>
+
+      <aside>
+        <div class="section-head"><h2>Settings</h2></div>
+        <div class="panel settings">
+          <label class="toggle">
+            <input type="checkbox" id="online">
+            <span><b>Online sources</b>
+              <small>Download official manufacturer LUTs when Resolve has no transform for a log profile
+                (e.g. DJI D-Log M), and keep the camera catalog up to date.</small></span>
+          </label>
+          <div class="setting">
+            <b>Default location</b>
+            <div class="row"><span class="mono path" id="default-root"></span>
+              <button class="link" id="change-root">Change</button></div>
+          </div>
+          <div class="setting">
+            <b>Camera catalog</b>
+            <div class="row"><span id="catalog-text" class="muted"></span>
+              <button class="link" id="catalog-refresh">Update</button></div>
+          </div>
+        </div>
+        <p class="footnote">davigen <span id="version-note"></span> · <a href="https://github.com/tetrxs/davigen" target="_blank" rel="noopener">github.com/tetrxs/davigen</a></p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- PROJECT --------------------------------------------------------------- -->
+  <section class="view" data-view="project" hidden>
+    <h1>New project</h1>
+    <label class="field">
+      <span>Name</span>
+      <input id="name" placeholder="ITALY_2026" autocomplete="off" spellcheck="false">
+      <small id="name-hint" class="hint"></small>
+    </label>
+    <label class="field">
+      <span>Location</span>
+      <div class="row">
+        <input id="root" autocomplete="off" spellcheck="false">
+        <button class="secondary" id="pick-root">Choose…</button>
+      </div>
+      <small class="hint mono" id="root-preview"></small>
+    </label>
+    <div class="actions"><span></span><button class="primary" id="project-next">Continue</button></div>
+  </section>
+
+  <!-- FOOTAGE --------------------------------------------------------------- -->
+  <section class="view" data-view="footage" hidden>
+    <h1 id="footage-title">Footage</h1>
+    <p class="lead">Add card or folder paths. davigen reads camera, model and log profile from each file's metadata.</p>
+    <div class="panel list" id="sources"></div>
+    <div class="row gap">
+      <button class="secondary" id="add-source">Add folder…</button>
+      <button class="secondary" id="scan" disabled>Scan</button>
+      <span class="muted" id="scan-text"></span>
+    </div>
+    <div class="bar" id="scan-bar" hidden><i></i></div>
+    <div id="scan-result"></div>
+
+    <h3 class="label">Transfer into the project</h3>
+    <div class="options" id="transfer">
+      <label class="option"><input type="radio" name="transfer" value="move">
+        <span><b>Move</b><small>Files are moved into 01_MEDIA/&lt;camera&gt;. No extra disk space on the same drive;
+          across drives each file is copied, verified by checksum, then removed. If anything fails or Resolve
+          crashes, every file is put back where it was.</small></span></label>
+      <label class="option"><input type="radio" name="transfer" value="copy">
+        <span><b>Copy</b><small>Originals stay untouched (e.g. a card you want to keep). Copies are checksum-verified.</small></span></label>
+      <label class="option"><input type="radio" name="transfer" value="leave">
+        <span><b>Leave in place</b><small>Import from where the files are now. The project folder stays empty.</small></span></label>
+    </div>
+    <p class="hint" id="space-hint"></p>
+
+    <div class="actions">
+      <button class="ghost" data-back>Back</button>
+      <div class="row gap">
+        <button class="ghost" id="skip-footage">Continue without footage</button>
+        <button class="primary" id="footage-next" disabled>Continue</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- CAMERAS --------------------------------------------------------------- -->
+  <section class="view" data-view="cameras" hidden>
+    <h1>Cameras</h1>
+    <p class="lead">Each camera + log profile becomes a color group. Check the profile – it decides the input transform.</p>
+    <div id="groups"></div>
+    <h3 class="label">Add a camera without footage</h3>
+    <input id="cam-search" placeholder="Search model or brand – Air 3, FX3, X-H2S, Pocket 3…" autocomplete="off" spellcheck="false">
+    <div id="cam-results" class="catgrid"></div>
+    <div class="actions">
+      <button class="ghost" data-back>Back</button>
+      <button class="primary" id="cameras-next">Continue</button>
+    </div>
+  </section>
+
+  <!-- FORMAT ---------------------------------------------------------------- -->
+  <section class="view" data-view="format" hidden>
+    <h1>Format</h1>
+    <div id="suggest"></div>
+
+    <h3 class="label">Aspect ratio</h3>
+    <div class="segmented" id="aspects"></div>
+
+    <div class="format-row">
+      <label class="field">
+        <span>Master resolution</span>
+        <select id="resolution"></select>
+      </label>
+      <label class="field custom-size" id="custom-size" hidden>
+        <span>Width × height</span>
+        <div class="row gap"><input id="cw" type="number" min="16" step="2"> <span>×</span>
+          <input id="ch" type="number" min="16" step="2"></div>
+      </label>
+      <label class="field">
+        <span>Frame rate</span>
+        <select id="fps"></select>
+      </label>
+    </div>
+    <p class="hint" id="edition-hint"></p>
+    <div id="fps-warnings"></div>
+
+    <h3 class="label">Deliveries</h3>
+    <div class="options compact" id="deliveries"></div>
+
+    <div class="actions">
+      <button class="ghost" data-back>Back</button>
+      <button class="primary" id="format-next">Continue</button>
+    </div>
+  </section>
+
+  <!-- REVIEW ---------------------------------------------------------------- -->
+  <section class="view" data-view="review" hidden>
+    <h1 id="review-title">Review</h1>
+    <div id="review" class="review"></div>
+    <div class="actions">
+      <button class="ghost" data-back>Back</button>
+      <button class="primary" id="create">Create project</button>
+    </div>
+  </section>
+
+  <!-- RUN ------------------------------------------------------------------- -->
+  <section class="view" data-view="run" hidden>
+    <h1 id="run-title">Working…</h1>
+    <ol id="progress" class="progress"></ol>
+    <pre id="error" class="error" hidden></pre>
+    <div id="after" hidden>
+      <div id="warnings"></div>
+      <div id="manual"></div>
+      <div class="actions">
+        <span></span>
+        <button class="primary" id="home">Done</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
