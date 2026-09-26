@@ -14,5 +14,5 @@ jobs:
           python-version: "3.13"
       - run: pip install pytest pyflakes -r requirements.txt
       - run: pyflakes davigen tests scripts
-      - run: pytest -q
+      - run: python -m pytest -q
       - run: zsh -n install.sh && zsh -n uninstall.sh
