@@ -258,12 +258,12 @@ def _simulator_error(entry: dict, rendered, cache) -> float | None:
     nodes = ((entry.get("correction") or {}).get("nodes")) or {}
     if cache is None or len(luts) != 2 or not all(luts) or not frames or not nodes:
         return None
-    thumb = cache.load(entry["path"]).get(frames[len(frames) // 2])
+    frame = frames[len(frames) // 2]
+    thumb = cache.load(entry["path"]).get(frame)
     if thumb is None:
         return None
-    from .correct import NODES  # noqa: PLC0415
-    chain = [p.Cdl(tuple(n["slope"]), tuple(n["offset"]), tuple(n["power"]), n["sat"])
-             for n in (nodes[label] for label in NODES if label in nodes)]
+    from .preview import nodes_at  # noqa: PLC0415
+    chain = nodes_at(entry, frame)                  # keyframes interpolated at the frame, as Resolve renders them
     simulated = p.apply_lut(p.apply_nodes(p.apply_lut(sampling.to_float(thumb), luts[0]), chain), luts[1])
     real = sampling.thumbnail(rendered, simulated.shape[1])
     h = min(real.shape[0], simulated.shape[0])
