@@ -279,3 +279,31 @@ max_exposure = 1.0                  # the learned offsets never go beyond these
 max_kelvin = 1500
 max_black = 0.03
 chroma = [0.7, 1.4]
+
+# Edit Assist (docs/concepts/EDIT_ASSIST.md): selects, beat markers, rough cut to music.
+[edit_assist.selects]
+sharp_rel = [0.35, 0.75]            # sharpness relative to the clip's best: unusable … fully good
+blur_abs = 0.01                     # below this absolute sharpness a frame is blurred whatever the clip
+shake = [0.08, 0.35]                # jitter in frame widths per second: fine … bad
+pan_speed = [0.6, 1.4]              # camera motion in frame widths per second: fine … whip pan
+dark = 0.04                         # mean luma below this: dark / covered
+no_detail = 0.002                   # mean gradient below this: nothing in frame
+unusable_below = 0.2
+unusable_min = 1.0                  # seconds
+good_above = 0.6
+good_min = 2.0
+voice_above = 0.5
+speech_min = 1.5
+
+[edit_assist.selects_timeline]
+max_seconds = 6.0                   # at most this much of each good stretch (from its calmest part)
+min_rating = 0.5
+
+[edit_assist.rough_cut]
+bars_calm = 2                       # shot length in bars where the music is calm …
+bars_energetic = 1                  # … and where it is energetic
+energy_split = 0.55                 # section energy (0–1) from which a section counts as energetic
+half_bar_above_bpm = 0              # cut every half bar above this tempo (0 = never)
+max_per_clip = 3                    # shots from one clip at most
+min_gap = 4.0                       # seconds between two shots from the same clip
+skip_speech = true                  # stretches with speech would fight the music
