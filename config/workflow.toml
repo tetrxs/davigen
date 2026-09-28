@@ -263,3 +263,4 @@ gap_minutes = 10                    # a longer pause between recordings starts a
 split_ev = 3.0                      # … so does a jump in EV100 …
 split_cct = 1500                    # … or in illuminant CCT between neighbours with good white balance
 pull_to_scene = 0.3                 # confident clips move this far towards the scene's reference
+pull_fixed_wb = 0.7                 # with the same manual Kelvin on every shot, white balance leans this far on the scene

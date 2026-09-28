@@ -10,7 +10,7 @@ reviewable change. Each one ends with tests or a check in Resolve, and leaves da
 | 03 | [Frame sampling and cache](03_SAMPLING.md) | yes | 01 | open |
 | 04 | [Measurements](04_MEASUREMENTS.md) | no | 02 | done 2026-09-28 |
 | 05 | [Corrections per node](05_CORRECTIONS.md) | no | 02, 04 | done 2026-09-28 |
-| 06 | [Scenes and matching](06_SCENES.md) | no | 05 | open |
+| 06 | [Scenes and matching](06_SCENES.md) | no | 05 | done 2026-09-28 |
 | 07 | [Writing into Resolve](07_WRITE.md) | yes | 01, 05 | open |
 | 08 | [UI, entry points, config](08_UI.md) | yes | 03, 07 | open |
 | 09 | [Evaluation and tuning](09_EVALUATION.md) | yes | 08 | open |

@@ -44,7 +44,7 @@ DEFAULTS: dict = {
         "clipped": 0.3, "changes": 0.3, "key": 0.3, "night": 0.2, "limit": 0.2, "skin_disagree": 0.2,
         "wb_spread_per_degree": 0.08, "achromatic": 0.4, "dominant": 0.4, "mixed_light": 0.3, "haze": 0.3,
     },
-    "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3},
+    "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3, "pull_fixed_wb": 0.7},
 }
 
 

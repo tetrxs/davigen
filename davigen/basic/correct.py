@@ -166,7 +166,7 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
     limited = abs(stops) > ex["max_stops"]
     stops = max(-ex["max_stops"], min(ex["max_stops"], stops))
     key_di = float(p.to_log(0.18 * 2.0 ** key))
-    offset = float(p.to_log(0.18 * 2.0 ** (key + stops)) - key_di)      # exact at the key, like a real stop
+    offset = exposure_cdl(m, stops).offset[0]
 
     # don't turn clipped whites grey: the clip level must stay at or above display white
     if m.clipped_fraction > fl["clipped"]:
@@ -179,6 +179,13 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
                 stops = _offset_to_stops(key_di, offset)
     values.update(exposure_stops=stops, exposure_target=target, exposure_reason=reason, exposure_key=key)
     return p.Cdl(offset=(offset, offset, offset)), _clamp(confidence), limited
+
+
+def exposure_cdl(m: ms.Measurement, stops: float) -> p.Cdl:
+    """Node 01 moving the frame's key by `stops`, exact at the key (a log offset is a stop only above the toe)."""
+    key = m.exposure_stops
+    offset = float(p.to_log(0.18 * 2.0 ** (key + stops)) - p.to_log(0.18 * 2.0 ** key))
+    return p.Cdl(offset=(offset, offset, offset))
 
 
 def _offset_to_stops(di_value: float, offset: float) -> float:
@@ -207,29 +214,38 @@ def _white_balance(m: ms.Measurement, settings: dict, values: dict, exposure: p.
     duv_error = duv - neutral_duv
     limited = abs(duv_error) > wb["max_duv"]
     new_duv = duv - math.copysign(min(abs(duv_error), wb["max_duv"]), duv_error)   # Duv fully, up to max_duv
-    if abs(new_cct - neutral_cct) < 1.0 and abs(new_duv - neutral_duv) < 1e-6:
-        target_xy = neutral_xy
-    else:
-        target_xy = p.cct_duv_to_xy(new_cct, new_duv)
-    white = p.xy_to_dwg(target_xy)
-    white = white / float(p.dwg_luminance(white))
-    illuminant = np.asarray(m.illuminant, dtype="float64")
-    illuminant = illuminant / float(p.dwg_luminance(illuminant))
-    # a neutral surface at the key, after node 01, lands on the target white at the same luminance
-    key = 0.18 * 2.0 ** m.exposure_stops
-    after_01 = p.apply_cdl(p.to_log(key * illuminant), exposure)
-    level = float(p.dwg_luminance(p.to_linear(after_01)))
-    offsets = p.to_log(level * white) - after_01
+    cdl, gains = white_balance_cdl(m, exposure, new_cct, new_duv)
 
     confidence = 1.0 - conf["wb_spread_per_degree"] * m.wb_spread
     confidence -= conf["achromatic"] * (m.achromatic_fraction < fl["achromatic_min"])
     confidence -= conf["dominant"] * (m.dominant_fraction > fl["dominant"])
     confidence -= conf["mixed_light"] * (m.mixed_light > fl["mixed_light"])
     confidence -= conf["changes"] * (m.cct_spread > fl["cct_spread"])
-    gains = white / illuminant
     values.update(cct_before=cct, duv_before=duv, cct_after=float(new_cct), duv_after=float(new_duv),
                   wb_gains=[float(g) for g in gains])
-    return p.Cdl(offset=tuple(float(o) for o in offsets)), _clamp(confidence), limited
+    return cdl, _clamp(confidence), limited
+
+
+def white_balance_cdl(m: ms.Measurement, exposure: p.Cdl, cct: float, duv: float, illuminant=None):
+    """Node 02 turning the light (default: the measured illuminant) into the white (cct, duv).
+
+    Exact for a neutral surface at the frame's key, as node 01 leaves it. Returns (Cdl, linear gains).
+    """
+    neutral_xy = p.dwg_to_xy(np.ones(3))
+    neutral_cct, neutral_duv = p.cct_duv(neutral_xy)
+    if abs(cct - neutral_cct) < 1.0 and abs(duv - neutral_duv) < 1e-6:
+        target_xy = neutral_xy
+    else:
+        target_xy = p.cct_duv_to_xy(cct, duv)
+    white = p.xy_to_dwg(target_xy)
+    white = white / float(p.dwg_luminance(white))
+    light = np.asarray(m.illuminant if illuminant is None else illuminant, dtype="float64")
+    light = light / float(p.dwg_luminance(light))
+    key = 0.18 * 2.0 ** m.exposure_stops
+    after_01 = p.apply_cdl(p.to_log(key * light), exposure)
+    level = float(p.dwg_luminance(p.to_linear(after_01)))
+    offsets = p.to_log(level * white) - after_01
+    return p.Cdl(offset=tuple(float(o) for o in offsets)), white / light
 
 
 # -------------------------------------------------------------------------------------------- 03 contrast
