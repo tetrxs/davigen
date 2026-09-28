@@ -290,6 +290,7 @@ refine_step_stops = 0.4             # neighbouring samples further apart than th
 refine_step_mired = 20
 refine_frames = 6                   # … this many per gap, in up to refine_passes extra renders
 refine_passes = 2
+contrast_follow_stops = 1.0         # a moment lifted or lowered this much gets its own black point (less: a blend)
 tolerance_stops = 0.05              # a keyframe goes where a straight line between its neighbours is further off than this
 max_keyframes = 16
 

@@ -82,6 +82,7 @@ class Sample:
     range_stops: float = 0.0
     local_contrast: float = 0.0
     chroma: float = 0.0                 # mean CIELAB C* of the display image
+    usable: bool = True                 # False: too few pixels between near black and clipped (lens covered, all sky)
 
 
 @dataclass
@@ -132,7 +133,8 @@ def measure(samples: list, meta: ClipMeta, output_lut: str | Path, settings: dic
     ms, fl = settings["measure"], settings["flags"]
     frames = [np.asarray(s, dtype="float64")[..., :3] for s in samples]
     clip_level = _clip_level(frames, ms)
-    per = [_sample(f, output_lut, clip_level, ms) for f in frames]
+    every = [_sample(f, output_lut, clip_level, ms) for f in frames]
+    per = [s for s in every if s.usable] or every      # a covered lens or an all-sky frame says nothing
 
     def med(name):
         return float(np.median([getattr(s, name) for s in per]))
@@ -162,7 +164,7 @@ def measure(samples: list, meta: ClipMeta, output_lut: str | Path, settings: dic
         mired_spread=float(np.ptp([1e6 / max(s.cct, 1000.0) for s in per])),
         black_point=med("black_point"), white_point=med("white_point"), range_stops=med("range_stops"),
         local_contrast=med("local_contrast"), chroma=med("chroma"), haze=False,
-        per_sample=[_plain(asdict(s)) for s in per],
+        per_sample=[_plain(asdict(s)) for s in every],
     )
     m.haze = m.range_stops < haze_cfg["max_range_stops"] and m.local_contrast < haze_cfg["max_local_contrast"]
     m.flags = flags(m, ms, fl)
@@ -232,6 +234,7 @@ def _sample(di: np.ndarray, output_lut, clip_level, ms: dict) -> Sample:
     bright = clipped | (lum > GREY_LINEAR * 4.0)
     s.low_key = bool(dark.mean() > lk["min_black_fraction"] and bright.mean() > lk["min_bright_fraction"])
     if valid.sum() < 16:                        # nothing usable: a black frame or all sky
+        s.usable = False
         s.illuminant = [1.0, 1.0, 1.0]
         s.cct, s.duv = p.cct_duv(p.dwg_to_xy(np.ones(3)))
         _contrast(s, di, display, lum, valid)

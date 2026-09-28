@@ -117,8 +117,10 @@ def test_tunnel_exit_is_keyframed(luts, tmp_path):
     assert item.versions["Version 1"].get("keyframes") is None          # the user's version is untouched
     # rendered through the fake: the tunnel is lifted, the street is not
     inside, outside = proj._graded(item, 200), proj._graded(item, 300)
-    plain_in = p.apply_lut(p.apply_lut(item.mpi.log_frame(200), luts[0]), luts[1])
-    assert p.luminance(inside).mean() > 1.2 * p.luminance(plain_in).mean()          # +1.4 stops (the limit)
+    nodes = [p.Cdl(tuple(v["slope"]), tuple(v["offset"]), tuple(v["power"]), v["sat"])
+             for _, v in sorted(e["correction"]["nodes"].items())]
+    static_in = p.apply_lut(p.apply_nodes(p.apply_lut(item.mpi.log_frame(200), luts[0]), nodes), luts[1])
+    assert p.luminance(inside).mean() > 1.5 * p.luminance(static_in).mean()         # lifted against the street's grade
     assert abs(float(p.luminance(outside).mean()) - 0.45) < 0.2
     # a second run with recompute replaces the keyframed grade again
     run.basic_correction(resolve, Config(), Reporter(run.STEPS), base=tmp_path, recompute=True)

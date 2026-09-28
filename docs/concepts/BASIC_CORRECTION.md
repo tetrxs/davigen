@@ -516,8 +516,13 @@ keyframing exposure by hand on every such clip is exactly the chore davigen shou
 3. **Follow it partly.** Beyond the dead zone `follow` (75 %) of the change is corrected, within the exposure
    limits of §5.1 and only while the highlights have room: the tunnel is lifted, but still reads darker than the
    street. White balance follows the measured light the same way (`wb_follow` 80 %).
-4. **Contrast pivots on each moment's key**, so the street's contrast doesn't push a lifted tunnel back down.
-   Saturation stays constant.
+4. **Its own black point.** The clip's contrast is solved on its median frames: on P1000074 (a drive through a
+   tunnel near Marseille) that is the bright motorway, and contrast 1.7 crushed the lifted tunnel to black. A
+   moment whose exposure moves by `contrast_follow_stops` (1 stop) or more therefore gets its own contrast from
+   the same solve (§5.3) on that frame, smoothed over three samples; smaller moves blend towards the clip's value,
+   so frames that stay with the clip keep it exactly. Saturation stays constant.
+   Frames with nothing to measure (lens covered, all sky: fewer than 16 pixels between near black and clipped)
+   are left out and bridged; before this they read as a key of exactly 0 and produced keyframes of their own.
 5. **Few keyframes.** Douglas–Peucker keeps only the frames a straight line can't replace within
    `tolerance_stops` (0.05), at most `max_keyframes`.
 6. **Write.** `DAVIGEN_AUTO` gets a keyframed copy of davigen's six-node structure through `ApplyGradeFromDRX`
@@ -525,6 +530,11 @@ keyframing exposure by hand on every such clip is exactly the chore davigen shou
    why. Nodes 05 and 06 of a keyframed `DAVIGEN_AUTO` start empty; the user's own version is never touched. When a
    later run writes constant values again, `DAVIGEN_AUTO` first goes back to the plain structure, because `SetCDL`
    can't overwrite keyframes.
+
+Simulated offline with the extra frames (ffmpeg decodes, `measure`, `correct`, `dynamic.plan`): the tunnel
+clip got 11 keyframes, the entry and exit located to within two frames; the car ride P1000079 (outside, then the
+camera turned to the door) 15, with the interior lifted by up to 3.5 stops against the street and its own black
+point. 132–168 extra frames per such clip, about 10 s of measuring each.
 
 On MARSEILLE_2026, from the cached samples alone (before the extra frames): with a dead zone of 0.5 and a minimum
 change of 1.0 stop, 33 of 57 clips got keyframes, mostly hand-held walks and car rides with moderate values

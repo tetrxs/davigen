@@ -65,8 +65,8 @@ def test_tunnel_exit_gets_a_ramp(out_lut):
     lift = min(0.75 * (3.4 - 0.5), S["exposure"]["max_stops_up"] - static_stops)
     assert kf.stops[i_in] == pytest.approx(lift, abs=0.1)
     assert key_after(thumbs[2], kf, i_in) > keys[2] + 1.0
-    # contrast keeps its amount and pivots on the moment's key; saturation is the same at every keyframe
-    assert len({x.slope for x in kf.nodes[c.CONTRAST]}) == 1
+    # the street keeps the clip's contrast, the lifted tunnel gets its own; saturation is the same everywhere
+    assert kf.nodes[c.CONTRAST][i_out] == corr.nodes[c.CONTRAST]
     assert len({repr(x) for x in kf.nodes[c.SATURATION]}) == 1
 
 
@@ -100,3 +100,12 @@ def test_simplify_keeps_corners():
     values = [np.array([0.0]) if f < 50 else np.array([min(1.0, (f - 50) / 20)]) for f in frames]
     assert dyn._simplify(frames, values, 0.01, 16) == [0, 50, 70, 100]
     assert dyn._simplify(frames, [np.array([0.0])] * len(frames), 0.01, 16) == []
+
+
+def test_covered_frames_are_bridged(out_lut):
+    frames, thumbs = clip([0.0, 0.0, 0.0, 0.0, 0.0])
+    thumbs[2] = np.zeros_like(thumbs[2])                                # the lens covered for a moment
+    meas, corr = static(frames, thumbs, out_lut)
+    assert meas.per_sample[2]["usable"] is False and meas.samples == 4 and len(meas.per_sample) == 5
+    assert abs(meas.exposure_stops) < 0.3                               # the black frame doesn't pull the key
+    assert dyn.plan(frames, meas.per_sample, meas, corr, thumbs, out_lut, S) is None
