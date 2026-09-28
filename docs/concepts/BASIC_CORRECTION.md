@@ -412,6 +412,14 @@ tested there unless it says *untested*.
   0.001 on average (the clip is tagged full range). No data-level or colour conversion.
 - The render settings on the Deliver page stay changed afterwards (the API can't read them back). The job is removed.
 
+**First full run (2026-09-28, MARSEILLE_2026, 57 clips)**
+
+- The analysis render of 576 one-frame snippets (Lumix 6K HEVC and 59.94 fps DJI on a 25 fps timeline, with
+  multi-frame snippets for the DJI) took 59 s, 0.1 s per frame, and gave exactly one file per snippet frame.
+- **Deleting a timeline invalidates the API objects of the other timelines**: afterwards `timeline.GetName` is
+  `None`. Everything that deletes a scratch timeline now fetches timelines again by name, and items by
+  `GetUniqueId()`.
+
 **Markers**
 
 - `TimelineItem.AddMarker(frame, color, name, note, duration, customData)` takes custom data;
