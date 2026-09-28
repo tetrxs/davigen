@@ -201,13 +201,14 @@ midtone_stops = 2.5                 # white balance uses pixels within ± this o
 skin = { hue = [110, 136], chroma = [0.03, 0.22], luma = [0.15, 0.90], min_fraction = 0.02, flag_fraction = 0.05, line = 123, max_off = 8 }
 high_key = { min_stops = 0.7, max_shadow_fraction = 0.05, max_chroma = 15 }
 low_key = { min_black_fraction = 0.35, min_bright_fraction = 0.08 }
-white_balance = { minkowski_p = 6, edge_p = 6, achromatic_top = 0.1, achromatic_max_angle = 3.0, iterations = 3 }
+white_balance = { minkowski_p = 6, edge_p = 6, achromatic_top = 0.1, achromatic_max_angle = 3.0, iterations = 3, learned = true }
 dominant_hue = { bin = 30, min_chroma = 0.04 }
 haze = { max_range_stops = 5.0, max_local_contrast = 0.012 }
 
 [basic_correction.flags]
 clipped = 0.03                      # "clipped highlights"
-wb_spread = 12.0                    # "no neutral surfaces": estimators disagree by more than this …
+wb_spread = 12.0                    # "no neutral surfaces": classic estimators disagree by more than this …
+wb_disagree_learned = 8.0           # … or, with the learned model, it and the classic median by more than this …
 achromatic_min = 0.01               # … or fewer achromatic pixels than this
 dominant = 0.5                      # "dominant colour"
 mixed_light = 14.0                  # "mixed light": halves of the frame disagree by more than this
@@ -259,6 +260,8 @@ limit = 0.2
 skin_disagree = 0.2
 wb_spread_free = 6.0                # estimator disagreement that is normal on real scenes …
 wb_spread_per_degree = 0.06         # … and what each degree beyond it costs
+wb_disagree_free = 2.0              # the same with the learned model: learned vs classic up to this is normal …
+wb_disagree_per_degree = 0.08       # … each degree beyond costs this (median error 0.8° below 2°, 4° above 8°)
 achromatic = 0.4
 dominant = 0.4
 mixed_light = 0.3
@@ -282,7 +285,8 @@ chroma = [0.7, 1.4]
 
 # Edit Assist (docs/concepts/EDIT_ASSIST.md): selects, beat markers, rough cut to music.
 [edit_assist.selects]
-sharp_rel = [0.35, 0.75]            # sharpness relative to the clip's best: unusable … fully good
+sharp_rel = [0.35, 0.75]            # sharpness relative to the shot around it: unusable … fully good
+sharp_window = 5.0                  # seconds either side that "the shot around it" means
 blur_abs = 0.01                     # below this absolute sharpness a frame is blurred whatever the clip
 shake = [0.08, 0.35]                # jitter in frame widths per second: fine … bad
 pan_speed = [0.6, 1.4]              # camera motion in frame widths per second: fine … whip pan

@@ -7,7 +7,8 @@ import copy
 
 DEFAULTS: dict = {
     "selects": {
-        "sharp_rel": [0.35, 0.75],      # sharpness relative to the clip's best: unusable … fully good
+        "sharp_rel": [0.35, 0.75],      # sharpness relative to the shot around it: unusable … fully good
+        "sharp_window": 5.0,            # seconds either side that "the shot around it" means
         "blur_abs": 0.01,               # below this absolute sharpness a frame is blurred whatever the clip
         "shake": [0.08, 0.35],          # jitter in frame widths per second: fine … bad
         "pan_speed": [0.6, 1.4],        # camera motion in frame widths per second: fine … whip pan

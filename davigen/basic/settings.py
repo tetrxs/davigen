@@ -31,12 +31,12 @@ DEFAULTS: dict = {
         "high_key": {"min_stops": 0.7, "max_shadow_fraction": 0.05, "max_chroma": 15},
         "low_key": {"min_black_fraction": 0.35, "min_bright_fraction": 0.08},
         "white_balance": {"minkowski_p": 6, "edge_p": 6, "achromatic_top": 0.1, "achromatic_max_angle": 3.0,
-                          "iterations": 3},
+                          "iterations": 3, "learned": True},
         "dominant_hue": {"bin": 30, "min_chroma": 0.04},
         "haze": {"max_range_stops": 5.0, "max_local_contrast": 0.012},
     },
     "flags": {
-        "clipped": 0.03, "wb_spread": 12.0, "achromatic_min": 0.01, "dominant": 0.5, "mixed_light": 14.0,
+        "clipped": 0.03, "wb_spread": 12.0, "wb_disagree_learned": 8.0, "achromatic_min": 0.01, "dominant": 0.5, "mixed_light": 14.0,
         "exposure_spread": 3.3, "mired_spread": 150, "night_ev": 5.0,
     },
     "exposure": {
@@ -51,7 +51,8 @@ DEFAULTS: dict = {
     "saturation": {"range": [0.85, 1.25], "chroma": [12, 26]},
     "confidence": {
         "clipped": 0.3, "changes": 0.3, "key": 0.3, "night": 0.2, "limit": 0.2, "skin_disagree": 0.2,
-        "wb_spread_free": 6.0, "wb_spread_per_degree": 0.06, "achromatic": 0.4, "dominant": 0.4, "mixed_light": 0.3, "haze": 0.3,
+        "wb_spread_free": 6.0, "wb_spread_per_degree": 0.06,
+        "wb_disagree_free": 2.0, "wb_disagree_per_degree": 0.08, "achromatic": 0.4, "dominant": 0.4, "mixed_light": 0.3, "haze": 0.3,
     },
     "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3, "pull_fixed_wb": 0.7},
     "learning": {"rate": 0.5, "max_exposure": 1.0, "max_kelvin": 1500, "max_black": 0.03, "chroma": [0.7, 1.4]},

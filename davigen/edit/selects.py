@@ -32,9 +32,9 @@ def frame_scores(w: Watch, cfg: dict) -> tuple[np.ndarray, list[str]]:
     n = len(w.sharpness)
     if n == 0:
         return np.zeros(0), []
-    # sharpness relative to the clip's own best (scenes differ a lot), with an absolute floor for real blur
-    best = max(float(np.percentile(w.sharpness, 90)), 1e-6)
-    rel = w.sharpness / best
+    # sharpness relative to the same shot a few seconds around (textures differ a lot between scenes, and a long
+    # drone flight passes many): blur is a dip against its neighbours, with an absolute floor for real blur
+    rel = w.sharpness / np.maximum(rolling_percentile(w.sharpness, int(cfg["sharp_window"] * w.fps), 75), 1e-6)
     s_sharp = np.clip((rel - cfg["sharp_rel"][0]) / (cfg["sharp_rel"][1] - cfg["sharp_rel"][0]), 0, 1)
     s_shake = np.clip(1 - (w.shake - cfg["shake"][0]) / (cfg["shake"][1] - cfg["shake"][0]), 0, 1)
     speed = np.hypot(*w.motion.T)
@@ -55,6 +55,14 @@ def frame_scores(w: Watch, cfg: dict) -> tuple[np.ndarray, list[str]]:
         if why[i]:
             score[i] = 0.0
     return score, why
+
+
+def rolling_percentile(values: np.ndarray, half: int, q: float) -> np.ndarray:
+    """The q-th percentile of values[i - half : i + half + 1] for every i."""
+    out = np.empty(len(values))
+    for i in range(len(values)):
+        out[i] = np.percentile(values[max(0, i - half): i + half + 1], q)
+    return out
 
 
 def _runs(mask: np.ndarray) -> list[tuple[int, int]]:

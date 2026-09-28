@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from . import pipeline as p
+from . import wb_model
 
 GREY_LINEAR = 0.18
 
@@ -69,7 +70,8 @@ class Sample:
     high_key: bool = False
     low_key: bool = False
     illuminant: list = field(default_factory=lambda: [1.0, 1.0, 1.0])   # linear DWG, luminance 1
-    wb_spread: float = 0.0              # largest angle between the four estimators
+    wb_spread: float = 0.0              # largest angle between the four classic estimators
+    wb_agreement: float | None = None   # angle between the learned light and the classic median (None: no model)
     achromatic_fraction: float = 0.0
     dominant_fraction: float = 0.0
     mixed_light: float = 0.0            # largest angle between left/right or top/bottom estimates
@@ -100,6 +102,7 @@ class Measurement:
     low_key: bool
     illuminant: list
     wb_spread: float
+    wb_agreement: float | None
     achromatic_fraction: float
     dominant_fraction: float
     mixed_light: float
@@ -153,6 +156,7 @@ def measure(samples: list, meta: ClipMeta, output_lut: str | Path, settings: dic
         skin_hue=med_opt("skin_hue"),
         high_key=sum(s.high_key for s in per) * 2 > len(per), low_key=sum(s.low_key for s in per) * 2 > len(per),
         illuminant=[float(v) for v in illuminant], wb_spread=med("wb_spread"),
+        wb_agreement=med_opt("wb_agreement"),
         achromatic_fraction=med("achromatic_fraction"), dominant_fraction=med("dominant_fraction"),
         mixed_light=med("mixed_light"), cct=cct, duv=duv, cct_spread=float(np.ptp([s.cct for s in per])),
         mired_spread=float(np.ptp([1e6 / max(s.cct, 1000.0) for s in per])),
@@ -176,7 +180,9 @@ def flags(m: Measurement, ms: dict, fl: dict) -> list[str]:
     out = []
     if m.clipped_fraction > fl["clipped"]:
         out.append(CLIPPED)
-    if m.wb_spread > fl["wb_spread"] or m.achromatic_fraction < fl["achromatic_min"]:
+    disagree = (m.wb_agreement > fl["wb_disagree_learned"] if m.wb_agreement is not None
+                else m.wb_spread > fl["wb_spread"])
+    if disagree or m.achromatic_fraction < fl["achromatic_min"]:
         out.append(NO_NEUTRAL)
     if m.dominant_fraction > fl["dominant"]:
         out.append(DOMINANT)
@@ -315,10 +321,20 @@ def _estimators(lin: np.ndarray, mask: np.ndarray, wb: dict) -> list:
 
 
 def _white_balance(s: Sample, lin, mid, valid, wb: dict) -> None:
+    """The light: from the learned model when there is one (1.15° median error on SimpleCube++ against 1.89°
+    for the classic median, scripts/train_wb.py), else the median of the four classic estimators. How far the
+    two disagree is the best predictor of a wrong estimate, so it feeds the confidence."""
     ests = _estimators(lin, mid, wb)
-    illuminant = _norm(np.median(ests, axis=0))
-    s.illuminant = [float(v) for v in illuminant]
+    classic = _norm(np.median(ests, axis=0))
     s.wb_spread = max(p.angle_deg(a, b) for i, a in enumerate(ests) for b in ests[i + 1:])
+    model = wb_model.load() if wb.get("learned", True) else None
+    if model is not None:
+        learned = _norm(wb_model.predict(model, wb_model.histograms(lin, valid)))
+        s.wb_agreement = p.angle_deg(learned, classic)
+        illuminant = learned
+    else:
+        illuminant = classic
+    s.illuminant = [float(v) for v in illuminant]
     px = np.maximum(lin[valid], 1e-9)
     e = illuminant / np.linalg.norm(illuminant)
     cos = np.clip((px @ e) / np.linalg.norm(px, axis=1), -1.0, 1.0)

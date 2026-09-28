@@ -234,8 +234,11 @@ def _white_balance(m: ms.Measurement, settings: dict, values: dict, exposure: p.
     new_duv = duv - math.copysign(min(abs(duv_error), wb["max_duv"]), duv_error)   # Duv fully, up to max_duv
     cdl, gains = white_balance_cdl(m, exposure, new_cct, new_duv)
 
-    # estimators always disagree a little on real scenes; only what goes beyond wb_spread_free costs confidence
-    confidence = 1.0 - conf["wb_spread_per_degree"] * max(0.0, m.wb_spread - conf["wb_spread_free"])
+    # estimators always disagree a little on real scenes; only what goes beyond the free part costs confidence
+    if m.wb_agreement is not None:
+        confidence = 1.0 - conf["wb_disagree_per_degree"] * max(0.0, m.wb_agreement - conf["wb_disagree_free"])
+    else:
+        confidence = 1.0 - conf["wb_spread_per_degree"] * max(0.0, m.wb_spread - conf["wb_spread_free"])
     confidence -= conf["achromatic"] * (m.achromatic_fraction < fl["achromatic_min"])
     confidence -= conf["dominant"] * (m.dominant_fraction > fl["dominant"])
     confidence -= conf["mixed_light"] * (m.mixed_light > fl["mixed_light"])

@@ -12,6 +12,9 @@ from test_basic_measure import di, neutral_scene  # noqa: E402 - tests/ is on sy
 
 pytestmark = pytest.mark.skipif(not colormath.available(), reason="colour-science not installed")
 S = settings.load(None)
+S["measure"]["white_balance"]["learned"] = False     # these tests check the maths on synthetic scenes, where the
+#                                                      classic estimators are exact; the learned model is tested
+#                                                      on real images (scripts/train_wb.py, test_basic_wb_model.py)
 
 
 @pytest.fixture(scope="module")

@@ -13,6 +13,9 @@ from davigen.basic import settings  # noqa: E402
 pytestmark = pytest.mark.skipif(not colormath.available(), reason="colour-science not installed")
 ROOT = Path(__file__).resolve().parent.parent
 S = settings.load(None)
+S["measure"]["white_balance"]["learned"] = False     # these tests check the maths on synthetic scenes, where the
+#                                                      classic estimators are exact; the learned model is tested
+#                                                      on real images (scripts/train_wb.py, test_basic_wb_model.py)
 H, W = 64, 96
 
 
