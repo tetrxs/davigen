@@ -280,24 +280,45 @@ def white_balance_cdl(m: ms.Measurement, exposure: p.Cdl, cct: float, duv: float
 # -------------------------------------------------------------------------------------------- 03 contrast
 
 def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values: dict):
+    """Black to the target band, around grey; when the whites won't allow that, the pivot moves up towards them
+    (a two-point levels fit) and the mids come down, at most max_grey_shift stops."""
     co, conf = settings["contrast"], settings["confidence"]
     lo_c, hi_c = co["range"]
     shift = settings.get("learned", {}).get("black", 0.0)
     black_lo, black_hi = (max(0.0, v + shift) for v in co["black"])
 
-    def pct(c):
-        return sim.luma_percentiles(before + [p.Cdl.contrast(c)])
+    def node(c, pivot=p.GREY):
+        return p.Cdl(slope=(c, c, c), offset=(pivot * (1.0 - c),) * 3)
+
+    def pct(c, pivot=p.GREY):
+        return sim.luma_percentiles(before + [node(c, pivot)])
 
     black, white = pct(1.0)
     values.update(black_before=float(black), white_before=float(white))
-    c = 1.0
+    c, pivot = 1.0, p.GREY
+    goal = None
     if not (black_lo <= black <= black_hi):
         goal = black_hi if black > black_hi else black_lo
-        c = _bisect(lambda x: pct(x)[0], goal, 0.5, 2.0)          # black falls as contrast rises
-    # whites stay under white_max; if the camera already put them above it, they may go up to white_ceiling
-    white_cap = co["white_max"] if white <= co["white_max"] else max(white, co["white_ceiling"])
+        c = _bisect(lambda x: pct(x)[0], goal, 0.5, 2.5)          # black falls as contrast rises
+    # whites may rise into the output LUT's soft shoulder, up to white_ceiling (or stay where the camera put them)
+    white_cap = max(white, co["white_ceiling"])
     if c > 1.0 and pct(c)[1] > white_cap:
-        c = min(c, _bisect(lambda x: pct(x)[1], white_cap, 1.0, c))
+        # levels on the neutral axis: the display black and white as DaVinci Intermediate values, mapped linearly
+        def di(y):
+            return _bisect(sim.grey_luma, y, -0.1, 1.2)
+        b0, w0, bt, wt = di(black), di(white), di(goal), di(white_cap)
+        c2 = (wt - bt) / max(w0 - b0, 1e-6)
+        pivot2 = (bt - c2 * b0) / (1.0 - c2) if abs(1.0 - c2) > 1e-6 else p.GREY
+        # the mids may come down only so far: then the black stays higher than its goal
+        max_drop = co["max_grey_shift"] * p.STOP
+        if (1.0 - c2) * (pivot2 - p.GREY) < -max_drop:
+            grey_to = p.GREY - max_drop
+            c2 = (wt - grey_to) / max(w0 - p.GREY, 1e-6)
+            pivot2 = (grey_to - c2 * p.GREY) / (1.0 - c2) if abs(1.0 - c2) > 1e-6 else p.GREY
+        if c2 > 1.0:
+            c, pivot = c2, pivot2
+        else:
+            c = min(c, _bisect(lambda x: pct(x)[1], white_cap, 1.0, c))
     confidence = 1.0
     if m.haze:
         c = 1.0 + (c - 1.0) * co["haze_factor"]
@@ -306,9 +327,11 @@ def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values
         confidence -= conf["key"]
     limited = not (lo_c <= c <= hi_c)
     c = min(max(c, lo_c), hi_c)
-    black_after, white_after = pct(c)
-    values.update(contrast=float(c), black_after=float(black_after), white_after=float(white_after))
-    return p.Cdl.contrast(c), _clamp(confidence), limited
+    black_after, white_after = pct(c, pivot)
+    values.update(contrast=float(c), contrast_pivot=float(pivot), black_after=float(black_after),
+                  white_after=float(white_after),
+                  grey_shift_stops=float((1.0 - c) * (pivot - p.GREY) / p.STOP))
+    return node(c, pivot), _clamp(confidence), limited
 
 
 # ------------------------------------------------------------------------------------------ 04 saturation

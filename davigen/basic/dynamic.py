@@ -5,8 +5,8 @@ The clip's correction (correct.py, scenes.py) is right for its median frame. Whe
 during the shot, davigen measures more frames around the change (`extra_frames`) and keyframes nodes 01 and 02 so
 that each moment lands close to where the median frame does. Small moves around the median are composition, not
 light, and stay alone (a dead zone); beyond it a share of the change is corrected, so a tunnel still reads darker
-than the street after it. Contrast and saturation stay constant: they are taste, not light. Every number is in
-[basic_correction.dynamic].
+than the street after it. Contrast keeps its amount but pivots on each moment's own key, saturation stays
+constant: they are taste, not light. Every number is in [basic_correction.dynamic].
 """
 
 from __future__ import annotations
@@ -113,7 +113,13 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
     static_stops = c._offset_to_stops(key_di, exp_static.offset[0])
     anchor, _ = c.white_balance_cdl(m, exp_static, *c.wb_target(m.cct, m.duv, settings)[:2])
 
-    stops_out, offsets, wbs, kelvins = [], [], [], []
+    # contrast pivots on each moment's own key: a lifted tunnel isn't pushed back down by the street's contrast
+    con_static = corr.nodes[c.CONTRAST]
+    slope = con_static.slope[0]
+    pivot0 = con_static.offset[0] / (1.0 - slope) if abs(1.0 - slope) > 1e-6 else p.GREY
+    median_after = float(p.to_log(0.18 * 2.0 ** (median_key + static_stops)))
+
+    stops_out, offsets, wbs, cons, kelvins = [], [], [], [], []
     for f, k, light, mired, thumb in zip(frames, keys, lights, mireds, thumbs):
         # exposure: the part of the key's move beyond the dead zone, `follow` of it
         stops = static_stops
@@ -136,12 +142,15 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
         wb = p.Cdl(offset=tuple(float(s + h - a) for s, h, a in zip(wb_static.offset, here.offset, anchor.offset)))
         if wb_static.is_identity:
             wb = wb_static
+        pivot = pivot0 + float(p.to_log(0.18 * 2.0 ** (float(k) + stops))) - median_after
+        cons.append(con_static if abs(1.0 - slope) <= 1e-6 or not exposure_moves
+                    else p.Cdl(slope=(slope,) * 3, offset=(pivot * (1.0 - slope),) * 3))
         stops_out.append(float(stops - static_stops))
         offsets.append(exp_cdl)
         wbs.append(wb)
         kelvins.append(float(1e6 / mired))
 
-    keep = _simplify(frames, [np.array([o.offset[0], *w.offset]) for o, w in zip(offsets, wbs)],
+    keep = _simplify(frames, [np.array([o.offset[0], *w.offset, n.offset[0]]) for o, w, n in zip(offsets, wbs, cons)],
                      dy["tolerance_stops"] * p.STOP, dy["max_keyframes"])
     if len(keep) < 2:
         return None
@@ -150,7 +159,7 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
     return Keyframes(
         frames=keep,
         nodes={c.EXPOSURE: [offsets[i] for i in pick], c.WHITE_BALANCE: [wbs[i] for i in pick],
-               c.CONTRAST: [corr.nodes[c.CONTRAST]] * len(pick), c.SATURATION: [corr.nodes[c.SATURATION]] * len(pick)},
+               c.CONTRAST: [cons[i] for i in pick], c.SATURATION: [corr.nodes[c.SATURATION]] * len(pick)},
         stops=[stops_out[i] for i in pick], kelvin=[kelvins[i] for i in pick],
         reason=f"{reason} change within the shot")
 

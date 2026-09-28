@@ -229,7 +229,7 @@ ev_low = 5.0                        # EV100 at ev_low: key goes to ev_low_target
 ev_low_target = -1.0
 night_target = -1.5                 # night is only brightened when it sits more than night_margin below this
 night_margin = 0.5
-high_key_max = 2.0                  # a high-key frame may stay this bright
+high_key_max = 1.0                  # a high-key frame may stay this bright
 low_key_min = -2.5                  # a low-key frame may stay this dark
 
 [basic_correction.white_balance]
@@ -240,11 +240,12 @@ max_duv = 0.02                      # larger green/magenta casts are corrected t
 neutral_cct = 6504                  # D65, the white of Rec.709
 
 [basic_correction.contrast]
-range = [0.85, 1.35]
+range = [0.85, 1.8]
 black = [0.02, 0.04]                # 0.5th percentile of display luma
-white_max = 0.95                    # 99.5th percentile of the pixels the camera didn't clip …
-white_ceiling = 0.98                # … or up to this, if they were above white_max already
-haze_factor = 0.5                   # flat, hazy scenes get only this share of the change
+white_max = 0.95                    # exposure only brightens while the 99.5th percentile stays under this …
+white_ceiling = 0.98                # … contrast may push it into the output LUT's soft shoulder up to this
+max_grey_shift = 0.5                # when the whites hold the contrast back, the pivot moves up and the mids drop at most this (stops)
+haze_factor = 1.0                   # flat, hazy scenes get this share of the change (1: the full contrast, a dehaze)
 
 [basic_correction.saturation]
 range = [0.85, 1.25]
@@ -291,6 +292,7 @@ split_ev = 3.0                      # … so does a jump in EV100 …
 split_cct = 1500                    # … or in illuminant CCT between neighbours with good white balance
 pull_to_scene = 0.3                 # confident clips move this far towards the scene's reference
 pull_fixed_wb = 0.7                 # with the same manual Kelvin on every shot, white balance leans this far on the scene
+pull_chroma = 0.5                   # colourfulness moves this far to the scene's median (a drone's LUT is more saturated)
 
 # Learning from your grades (concept §13): 'Compare with my grade' → 'Learn from it' moves the targets towards your
 # own versions. What was learned is stored per user in data/basic_learned.json; delete that file to forget it.

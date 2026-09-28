@@ -42,12 +42,12 @@ DEFAULTS: dict = {
     "exposure": {
         "max_stops_down": 3.0, "max_stops_up": 1.5, "clipped_white": 0.9, "skin_ire": [60, 70],
         "skin_max_nudge": 0.5, "skin_disagree": 1.0, "ev_full": 10.0, "ev_low": 5.0,
-        "ev_low_target": -1.0, "night_target": -1.5, "night_margin": 0.5, "high_key_max": 2.0, "low_key_min": -2.5,
+        "ev_low_target": -1.0, "night_target": -1.5, "night_margin": 0.5, "high_key_max": 1.0, "low_key_min": -2.5,
     },
     "white_balance": {
         "cct_strength": [[7500, 0.6], [5000, 1.0], [3500, 0.6], [0, 0.35]], "max_duv": 0.02, "neutral_cct": 6504,
     },
-    "contrast": {"range": [0.85, 1.35], "black": [0.02, 0.04], "white_max": 0.95, "white_ceiling": 0.98, "haze_factor": 0.5},
+    "contrast": {"range": [0.85, 1.8], "black": [0.02, 0.04], "white_max": 0.95, "white_ceiling": 0.98, "max_grey_shift": 0.5, "haze_factor": 1.0},
     "saturation": {"range": [0.85, 1.25], "chroma": [12, 26]},
     "confidence": {
         "clipped": 0.3, "changes": 0.3, "key": 0.3, "night": 0.2, "limit": 0.2, "skin_disagree": 0.2,
@@ -60,7 +60,7 @@ DEFAULTS: dict = {
         "refine_step_stops": 0.4, "refine_step_mired": 20, "refine_frames": 6, "refine_passes": 2,
         "tolerance_stops": 0.05, "max_keyframes": 16,
     },
-    "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3, "pull_fixed_wb": 0.7},
+    "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3, "pull_fixed_wb": 0.7, "pull_chroma": 0.5},
     "learning": {"rate": 0.5, "max_exposure": 1.0, "max_kelvin": 1500, "max_black": 0.03, "chroma": [0.7, 1.4]},
 }
 

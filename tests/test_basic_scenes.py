@@ -84,7 +84,7 @@ def test_single_shot_is_unchanged(out_lut):
 
 def test_pull_strength(out_lut):
     def pair(pull):
-        cfg = settings.load({"basic_correction": {"scenes": {"pull_to_scene": pull},
+        cfg = settings.load({"basic_correction": {"scenes": {"pull_to_scene": pull, "pull_chroma": pull},
                                                   "measure": {"white_balance": {"learned": False}}}})
         hero = shot(grey_scene(seed=1), out_lut, 0, "2026-09-25T10:00:00Z", seconds=20, cfg=cfg)
         other = shot(grey_scene(seed=2, key=0.18 * 2 ** 0.6) * light(5400), out_lut, 1, "2026-09-25T10:01:00Z",

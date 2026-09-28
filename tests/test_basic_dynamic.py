@@ -56,7 +56,7 @@ def test_tunnel_exit_gets_a_ramp(out_lut):
     kf = dyn.plan(frames, meas.per_sample, meas, corr, thumbs, out_lut, S)
     assert kf is not None and "exposure" in kf.reason
     assert kf.frames[0] == 0 and kf.frames[-1] == 150 and 50 in kf.frames and 75 in kf.frames
-    assert len(kf.frames) <= 4                                          # flat stretches need no keyframes
+    assert len(kf.frames) <= 5                                          # flat stretches need few keyframes
     i_in, i_out = kf.frames.index(50), kf.frames.index(75)
     # the street after the tunnel keeps the static correction; the tunnel is lifted by 75 % beyond the dead zone,
     # up to the exposure limit (lifting further only lifts noise)
@@ -65,8 +65,9 @@ def test_tunnel_exit_gets_a_ramp(out_lut):
     lift = min(0.75 * (3.4 - 0.5), S["exposure"]["max_stops_up"] - static_stops)
     assert kf.stops[i_in] == pytest.approx(lift, abs=0.1)
     assert key_after(thumbs[2], kf, i_in) > keys[2] + 1.0
-    # contrast and saturation are the same at every keyframe
-    assert len({repr(x) for x in kf.nodes[c.CONTRAST]}) == 1
+    # contrast keeps its amount and pivots on the moment's key; saturation is the same at every keyframe
+    assert len({x.slope for x in kf.nodes[c.CONTRAST]}) == 1
+    assert len({repr(x) for x in kf.nodes[c.SATURATION]}) == 1
 
 
 def test_small_moves_are_composition(out_lut):

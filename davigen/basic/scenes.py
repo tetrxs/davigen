@@ -1,8 +1,9 @@
 """Balance, then match (concept §6): group shots into scenes, pick a hero, pull the others towards it.
 
 Pushing every clip to the same absolute target flattens a sequence. Colorists balance each shot, then match the
-shots of a scene to a hero. Only nodes 01 (exposure) and 02 (white balance) are matched; contrast and saturation
-stay per shot.
+shots of a scene to a hero. Nodes 01 (exposure) and 02 (white balance) are pulled towards the hero; node 04
+(saturation) towards the scene's typical colourfulness, so shots from cameras with more saturated LUTs (drones)
+sit with the rest. Contrast stays per shot: every shot is already solved to the same black level.
 """
 
 from __future__ import annotations
@@ -46,7 +47,32 @@ def match_scenes(shots: list[Shot], settings: dict) -> list[Shot]:
         fixed_wb = _fixed_white_balance(scene)
         for shot in scene:
             _pull(shot, hero, sc["pull_to_scene"], sc["pull_fixed_wb"] if fixed_wb else None, threshold)
+        _match_colourfulness(scene, sc["pull_chroma"], settings["saturation"]["range"])
     return shots
+
+
+def _match_colourfulness(scene: list[Shot], pull: float, sat_range) -> None:
+    """Move each shot's colourfulness (mean C* after the correction) `pull` of the way to the scene's median.
+    Chroma grows about in proportion to saturation, so the saturation is scaled by the ratio."""
+    values = [s.correction.values for s in scene]
+    chromas = [v.get("chroma_after", 0.0) for v in values if v.get("chroma_after", 0.0) > 0]
+    if len(chromas) < 2 or pull <= 0:
+        return
+    median = float(np.median(chromas))
+    for shot in scene:
+        v, corr = shot.correction.values, shot.correction
+        own = v.get("chroma_after", 0.0)
+        if own <= 0 or ms.DOMINANT in shot.measurement.flags:
+            continue                        # one colour filling the frame is the subject, not the camera
+        target = own + pull * (median - own)
+        sat = min(max(v["saturation"] * target / own, sat_range[0]), sat_range[1])
+        if abs(sat - v["saturation"]) < 1e-3:
+            continue
+        shot.notes["saturation_pulled"] = sat - v["saturation"]
+        v.update(chroma_after=own * sat / v["saturation"], saturation=float(sat))
+        corr.nodes[c.SATURATION] = p.Cdl.saturation(sat)
+        if MATCHED not in corr.flags:
+            corr.flags.append(MATCHED)
 
 
 # ------------------------------------------------------------------------------------------------ grouping
