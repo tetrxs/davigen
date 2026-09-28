@@ -69,3 +69,22 @@ Done: [`davigen/basic/correct.py`](../../../davigen/basic/correct.py), settings 
   6504 K, contrast 1.17, saturation 1.25, overall confidence 0 with six flags. A colorist would pull it down
   further; whether the high-key rule is too careful is for the evaluation (step 09).
 - 0.6 s per clip for 6 samples, all four nodes.
+
+## Calibration on real footage (2026-09-28)
+
+`scripts/basic_offline.py` on all 57 clips of MARSEILLE_2026 (52 × Lumix S1II 6K V-Log, 5 × DJI Air 3 D-Log M,
+backlight, windscreens, sea, limestone). What the first rules got wrong, and what changed:
+
+| Seen | Cause | Change |
+|---|---|---|
+| almost every clip "exposed for skin" | beige limestone and sand sit at ~140° on the vectorscope, inside the skin window | skin window 110–136°; skin only nudges the key-based exposure by ≤ 0.5 stop |
+| the V-Log clips were 2–3 stops over (ETTR) but came down at most 1.5 | symmetric limit | down to −3 stops, up to +1.5 |
+| a sunny DJI cliff was brightened 2.7 stops and burned out | the DJI LUT puts highlights on a ceiling, measured as "clipped" and left out of the key | clipped pixels count for exposure (not for white balance) |
+| a dark sea under bright rock was brightened | nothing checked the highlights when brightening | brighten only until the 99.5th percentile reaches `white_max` |
+| scene matching moved a clip to −4.9 stops | the pull ignored the shot's limits | every shot records its exposure range; the pull stays inside it |
+| 54 of 57 clips flagged | thresholds from synthetic scenes; hand-held shots vary a lot between samples | flag thresholds at about the 85th percentile of these clips; CCT spread in mired |
+| contrast/saturation at their range flagged as "limit reached" | — | only exposure and white balance limits count |
+
+After: median exposure −0.96 stops (−3.0 … +1.1), 24 of 57 clips with a marker, and a contact sheet that looks like
+a first grade (sky and colour back, haze reduced, blown skies held). Known weak spot: an interior with a bright
+window is metered on the window and ends up too dark. Tuning further needs hand grades (step 09).
