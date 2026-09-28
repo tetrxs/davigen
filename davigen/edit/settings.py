@@ -32,6 +32,7 @@ DEFAULTS: dict = {
         "max_per_clip": 3,              # shots from one clip at most
         "min_gap": 4.0,                 # seconds between two shots from the same clip
         "skip_speech": True,
+        "reorder_window": 3,            # how far a shot may move to avoid two of the same clip in a row
     },
 }
 

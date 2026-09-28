@@ -64,6 +64,20 @@ def candidates(clips: list[ClipPlan], cfg: dict, piece: float) -> list[Candidate
     return out
 
 
+def avoid_jump_cuts(shots: list[Candidate], window: int) -> list[Candidate]:
+    """Two shots of the same clip in a row look like a jump cut. Pull the next shot of another clip forward, if one
+    is within `window` places (the same part of the day, so the story's order holds)."""
+    out = list(shots)
+    for i in range(1, len(out)):
+        if out[i].clip.id != out[i - 1].clip.id:
+            continue
+        for j in range(i + 1, min(len(out), i + 1 + window)):
+            if out[j].clip.id != out[i - 1].clip.id:
+                out.insert(i, out.pop(j))
+                break
+    return out
+
+
 def grid(music: Music, cfg: dict) -> list[int]:
     """Beat indices to cut on: one or two bars per shot depending on the section's energy."""
     beats = music.beats
@@ -110,6 +124,7 @@ def plan(clips: list[ClipPlan], music: Music, cfg: dict) -> list[Shot]:
         if len(chosen) >= len(cuts):
             break
     chosen.sort(key=lambda c: c.key)
+    chosen = avoid_jump_cuts(chosen, cfg["reorder_window"])
 
     shots: list[Shot] = []
     queue = list(chosen)

@@ -42,7 +42,9 @@ def test_plan_cuts_on_beats_in_recording_order():
     for a, b in zip(shots, shots[1:]):
         assert a.record_end == b.record_start                            # no gaps
     assert all(any(abs(s.record_end - t) < 1e-6 for t in beat_times) for s in shots)
-    assert [s.clip_id for s in shots] == sorted((s.clip_id for s in shots), key=lambda c: int(c[1:]))
+    order = [int(s.clip_id[1:]) for s in shots]
+    window = CFG["reorder_window"]
+    assert all(order[i] <= order[j] for i in range(len(order)) for j in range(i + window + 1, len(order)))
     counts = {c: sum(1 for s in shots if s.clip_id == c) for c in {s.clip_id for s in shots}}
     assert max(counts.values()) <= CFG["max_per_clip"]
     for s in shots:
@@ -69,3 +71,15 @@ def test_no_shot_shorter_than_two_beats():
     clips = [clip(i, f"2026-09-25T10:{i:02d}:00Z", [(0.0, 3.4 + (i % 3) * 0.9, 0.9)]) for i in range(30)]
     shots = rc.plan(clips, song(), CFG)
     assert shots and all(s.record_end - s.record_start >= 2 * 0.5 - 1e-6 for s in shots)
+
+
+def test_jump_cuts_are_broken_up():
+    clips = [clip(0, "2026-09-25T10:00:00Z", [(0.0, 60.0, 0.95)]), clip(1, "2026-09-25T10:05:00Z", [(0.0, 20.0, 0.9)]),
+             clip(2, "2026-09-25T10:06:00Z", [(0.0, 20.0, 0.9)])]
+    shots = rc.plan(clips, song(seconds=40.0), CFG)
+    ids = [s.clip_id for s in shots]
+    assert len(ids) >= 4
+    for i in range(1, len(ids)):                     # a repeat only where no other clip is left
+        if ids[i] == ids[i - 1]:
+            assert set(ids[i:]) == {ids[i]}
+    assert ids[0] == "c0"                                                            # the story still starts there

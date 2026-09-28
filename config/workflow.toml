@@ -320,3 +320,4 @@ half_bar_above_bpm = 0              # cut every half bar above this tempo (0 = n
 max_per_clip = 3                    # shots from one clip at most
 min_gap = 4.0                       # seconds between two shots from the same clip
 skip_speech = true                  # stretches with speech would fight the music
+reorder_window = 3                  # how far a shot may move to avoid two of the same clip in a row (a jump cut)
