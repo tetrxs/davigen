@@ -241,3 +241,5 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 12
 .report-table td.flags { color: var(--muted); }
 .report-table tbody tr { cursor: pointer; }
 .report-table tbody tr:hover td { background: var(--hover, rgba(127, 127, 127, 0.08)); }
+.report .row { margin-top: 12px; align-items: center; }
+.report button { white-space: nowrap; }
