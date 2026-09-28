@@ -51,6 +51,7 @@ The day-to-day editing guide (which timeline is for what, how to grade, how to d
 | **Bins** | `01_FOOTAGE/<CAMERA>`, selects, timelines, audio, graphics, PowerGrades … Clips get a clip color and keywords, and the camera and profile are written to their metadata. |
 | **Timelines** | `TL_01_ASSEMBLY` holds all clips in shooting order. `TL_02_EDIT` and `TL_03_MASTER` are at master resolution. There is one `TL_0N_DELIVERY_…` timeline per extra delivery format. Every timeline has named tracks. |
 | **Color** | One color group per camera and profile (`G_LUMIX_S1II_VLOG`, `G_DJI_AIR3_DLOGM`). **Group Pre-Clip** turns the camera log into DaVinci Wide Gamut. **Group Post-Clip** turns that into Rec.709 with DaVinci tone mapping. Each clip gets six labelled, empty nodes (`01_EXPOSURE … 06_FINISH`). |
+| **Basic correction** | Measures every clip (rendered by Resolve itself, in the working space) and fills `01_EXPOSURE … 04_SATURATION` with exposure, white balance, contrast and saturation, matched per scene. Everything goes into a grade version `DAVIGEN_AUTO`; your own grade is never touched. Unsure clips get a marker. See [docs/WORKFLOW.md §5](docs/WORKFLOW.md#5-grading). |
 | **Deliver** | Render presets and output folders for the master (ProRes 422 HQ), 16:9 UHD (H.265) and 9:16 1080 (H.264), with 16:9 HD, 4:5 and 1:1 as options. The whole set can be queued with one click. |
 
 The home screen also looks after the project that is open in Resolve:
@@ -90,7 +91,7 @@ Outside that folder the installer writes only three things:
 
 | What | Where | Why |
 |---|---|---|
-| Menu entry | `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/davigen.py` | makes davigen appear under Workspace → Scripts |
+| Menu entries | `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/davigen.py` and `davigen Basic Correction.py` | make davigen appear under Workspace → Scripts |
 | LaunchAgent | `~/Library/LaunchAgents/com.davigen.python.plist` | sets `PYTHON3HOME` at login, so Resolve can find davigen's Python |
 | LUTs | `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/davigen/` | the input and output transforms the color groups use |
 
@@ -131,10 +132,15 @@ Open Resolve, then choose **Workspace → Scripts → davigen**. A browser windo
 
    davigen suggests the format of your footage. It warns about frame-rate mismatches, for example 59.94 fps drone
    clips in a 25 fps project. In Resolve Free it shows the resolution the project will get.
-5. **Review:** every folder, timeline, group and delivery before anything is created.
+5. **Review:** every folder, timeline, group and delivery before anything is created, and the **Basic
+   correction** checkbox: a measured first pass of exposure, white balance, contrast and saturation in a grade
+   version `DAVIGEN_AUTO`.
 
 You then see each step's progress. The run ends with **Left to do in Resolve**: the few things Resolve's scripting
 API cannot do, such as setting the playback frame rate or generating proxies.
+
+**Basic correction** on the home screen (or **Workspace → Scripts → davigen Basic Correction**) runs the same
+first pass on the timeline that is open in Resolve, with a report of every clip.
 
 ## The color pipeline
 

@@ -164,6 +164,10 @@ class App:
                    "timeline": body.get("timeline", "")}
         return self._start(basic.STEPS, basic.flow, options)
 
+    def start_evaluate(self, body: dict) -> dict:
+        from .basic import run as basic  # noqa: PLC0415
+        return self._start(basic.EVALUATE_STEPS, basic.evaluate_flow, {"user_version": body.get("user_version", "")})
+
     def basic_report(self, q: dict) -> dict:
         """The last Basic Correction record of the current timeline, as report rows."""
         from .basic import run as basic, write  # noqa: PLC0415
@@ -371,6 +375,7 @@ def make_handler(app: App):
         "/api/queue": app.start_queue,
         "/api/basic": app.start_basic,
         "/api/basic/goto": app.basic_goto,
+        "/api/basic/evaluate": app.start_evaluate,
         "/api/open-project": app.open_project,
         "/api/reveal": app.reveal,
         "/api/vendor-lut": app.vendor_lut,

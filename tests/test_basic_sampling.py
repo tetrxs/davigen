@@ -77,6 +77,14 @@ def test_cache_roundtrip_and_invalidation(tmp_path):
     assert cache.load(str(clip)) == {}
 
 
+class FakeItem:
+    def __init__(self, start, length):
+        self.start, self.length = start, length
+
+    def GetDuration(self):
+        return self.length
+
+
 class FakeTimeline:
     def __init__(self, name):
         self.name, self.items, self.settings = name, [], {"timelineResolutionWidth": "3240",
@@ -111,9 +119,13 @@ class FakeProject:
                 return True
 
             def AppendToTimeline(self, infos):
-                assert all(i["endFrame"] == i["startFrame"] + 1 for i in infos)
-                outer.current.items += infos
-                return list(infos)
+                out = []
+                for i in infos:
+                    span = i["endFrame"] - i["startFrame"]
+                    item = FakeItem(i["startFrame"], 2 if span > 2 else 1)     # a 60p snippet may give 2 frames
+                    outer.current.items.append(item)
+                    out.append(item)
+                return out
         self.mp = MP()
 
     def GetMediaPool(self):
@@ -147,10 +159,13 @@ class FakeProject:
         if self.fail_render:
             return True
         target = Path(self.settings["TargetDir"])
-        for n, info in enumerate(self.current.items):
-            value = 1000 + info["startFrame"]            # each frame renders a distinct grey
-            img = np.full((self.settings["FormatHeight"], self.settings["FormatWidth"], 3), value, "uint16")
-            write_tiff(target / f"a{90000 + n:08d}.tif", img)
+        n = 0
+        for item in self.current.items:
+            for k in range(item.length):
+                value = 1000 + item.start + k                # each frame renders a distinct grey
+                img = np.full((self.settings["FormatHeight"], self.settings["FormatWidth"], 3), value, "uint16")
+                write_tiff(target / f"a{90000 + n:08d}.tif", img)
+                n += 1
         return True
 
     def IsRenderingInProgress(self):
@@ -177,6 +192,15 @@ def test_render_maps_frames_and_cleans_up():
     assert [t.GetName() for t in proj.timelines] == ["TL_01_ASSEMBLY"]    # scratch timeline gone
     assert proj.current.GetName() == "TL_01_ASSEMBLY" and proj.jobs == []
     assert proj.loaded_preset == "DAVIGEN_MASTER"
+
+
+def test_high_frame_rate_snippets():
+    assert sampling.span_for(59.94, 25.0) == 3 and sampling.span_for(25.0, 25.0) == 1
+    assert sampling.span_for(23.976, 25.0) == 1 and sampling.span_for(50.0, 25.0) == 2
+    proj = FakeProject()
+    reqs = [sampling.Request(("dji", 10), object(), 10, span=3), sampling.Request(("lumix", 7), object(), 7)]
+    out = sampling.render(None, proj, reqs, 96)
+    assert int(out[("dji", 10)][0, 0, 0]) == 1010 and int(out[("lumix", 7)][0, 0, 0]) == 1007
 
 
 def test_render_failure_still_cleans_up():

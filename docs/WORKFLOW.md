@@ -158,6 +158,43 @@ camera log → DWG         03_CONTRAST ─▶ 04_SATURATION ─▶           fil
   A look placed here applies to the whole camera group. For a look across all cameras, save it as a PowerGrade
   and apply it to each group's post-clip graph.
 
+### Basic correction: the first pass, measured
+
+davigen can fill `01_EXPOSURE` to `04_SATURATION` for you. It renders a few small frames of every clip through
+Resolve, measures them in the working space and writes the values into a **new grade version called
+`DAVIGEN_AUTO`**. Your own version is never changed.
+
+- **Start it:** tick *Basic correction* when you create the project (on by default), press **Basic correction**
+  on the home screen for the current timeline, or choose **Workspace → Scripts → davigen Basic Correction**.
+  *Assign groups & nodes* also corrects clips that just got the node structure, when the project has it on.
+- **What it does per clip:**
+
+  | Node | Measured | Written |
+  |---|---|---|
+  | `01_EXPOSURE` | log-average brightness, skin (60–70 IRE), scene brightness from the camera's ISO, aperture and shutter | offset |
+  | `02_WHITE_BALANCE` | the light, from four estimators; its colour temperature and green/magenta | green/magenta fully, warm and cool only partly |
+  | `03_CONTRAST` | black and white points after the output LUT | contrast around middle grey |
+  | `04_SATURATION` | colourfulness after the output LUT | saturation, never boosting what is already colourful |
+
+- **Scenes:** clips shot within a few minutes in the same light form a scene. The most confident, longest clip is
+  its hero; the others are pulled towards it, and a clip that can't judge its light (a close-up of a green bush)
+  takes the scene's white balance.
+- **Where you see it:** on the Color page the values sit in the primaries of nodes 01–04: exposure shows on the
+  **Lift and Gain** wheels, saturation on *Sat*, and Resolve sets *Lum Mix* to 0 for these nodes. Everything stays
+  editable.
+- **Before/after:** right-click a clip → **Local Versions** → `Version 1` / `DAVIGEN_AUTO`.
+- **Unsure clips** get a yellow marker (*davigen: dominant colour*, *mixed light*, *clipped highlights*, …); clips
+  outside their color group a red one. The home screen shows a report of every clip; click a row to jump to it.
+- **Again:** a second run only corrects clips without `DAVIGEN_AUTO` and reuses the measured frames.
+  *Recompute all* rewrites every `DAVIGEN_AUTO` (changes you made inside it are lost). *Dry run* measures and
+  sets markers without touching any grade.
+- **Where it keeps things:** measured frames in `03_WORK/ANALYSIS/`, every value and the reason for it in
+  `00_ADMIN/PROJECT_INFO/basic_correction/<timeline>.json`.
+
+It is a first pass, not a look: silhouettes, night shots and golden hour stay what they are. How it works is in
+[docs/concepts/BASIC_CORRECTION.md](concepts/BASIC_CORRECTION.md); every threshold is in
+`config/workflow.toml` under `[basic_correction]`.
+
 **Matching cameras:** because each camera is converted into the same working space first, a V-Log clip and a
 D-Log M clip usually need only exposure and white balance to match. Grade the hero camera first, then match the
 others to it with the scopes (Waveform, Parade) using a split screen.

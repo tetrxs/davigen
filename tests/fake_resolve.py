@@ -202,8 +202,11 @@ class MediaPool:
     def AppendToTimeline(self, infos):
         out = []
         for info in infos:
-            assert info["endFrame"] == info["startFrame"] + 1
-            ti = TimelineItem(info["mediaPoolItem"], 0, 1, info["startFrame"])
+            span = info["endFrame"] - info["startFrame"]
+            assert span >= 1                                        # (f, f) fails in Resolve (step 01)
+            fps = info["mediaPoolItem"].fps
+            length = max(1, round(span * 25.0 / fps)) if fps > 25 else span
+            ti = TimelineItem(info["mediaPoolItem"], 0, length, info["startFrame"])
             self.project.current.items.append(ti)
             out.append(ti)
         return out
@@ -217,6 +220,7 @@ class Project:
         self.jobs: list[str] = []
         self.mp = MediaPool(self)
         self.preset = ""
+        self.job_settings: dict[str, dict] = {}
 
     def GetName(self):
         return self.name
@@ -258,19 +262,49 @@ class Project:
         return True
 
     def AddRenderJob(self):
-        self.jobs.append("job")
-        return "job"
+        job = f"job{len(self.job_settings) + 1}"
+        self.jobs.append(job)
+        self.job_settings[job] = dict(self.render_settings)
+        return job
+
+    def _graded(self, ti, frame):
+        """What Resolve would render for an item: input LUT, the active version's CDLs, output LUT."""
+        from davigen.basic import pipeline as p
+        log = ti.mpi.log_frame(frame)
+        group = ti.group or next(g for g in self.groups if g.name == ti.mpi.group)
+        img = p.apply_lut(log, group.pre.lut)
+        for _, cdl in sorted(ti.versions[ti.current]["cdl"].items()):
+            nums = {k: [float(v) for v in cdl[k].split()] for k in ("Slope", "Offset", "Power", "Saturation")}
+            img = p.apply_cdl(img, p.Cdl(tuple(nums["Slope"]), tuple(nums["Offset"]), tuple(nums["Power"]),
+                                         nums["Saturation"][0]))
+        return p.apply_lut(img, group.post.lut)
 
     def StartRendering(self, jobs):
         self.renders += 1
+        settings = self.job_settings[jobs[0]]
+        if not settings.get("SelectAllFrames", True):
+            for job in jobs:                                         # evaluation: one graded frame per job
+                st = self.job_settings[job]
+                ti = next(t for t in self.current.items if t.start <= st["MarkIn"] < t.start + t.duration)
+                frame = ti.source_start + (st["MarkIn"] - ti.start)
+                img = self._graded(ti, frame)
+                ys = np.linspace(0, img.shape[0] - 1, st["FormatHeight"]).astype(int)
+                xs = np.linspace(0, img.shape[1] - 1, st["FormatWidth"]).astype(int)
+                write_tiff(Path(st["TargetDir"]) / "e00090000.tif",
+                           (np.clip(img[ys][:, xs], 0, 1) * 65535).astype("uint16"))
+            return True
+        self.render_settings = settings
         target = Path(self.render_settings["TargetDir"])
         w, h = self.render_settings["FormatWidth"], self.render_settings["FormatHeight"]
-        for n, ti in enumerate(self.current.items):
-            frame = ti.mpi.log_frame(ti.source_start)            # camera log 0–1
-            ys = np.linspace(0, frame.shape[0] - 1, h).astype(int)
-            xs = np.linspace(0, frame.shape[1] - 1, w).astype(int)
-            img = (np.clip(frame[ys][:, xs], 0, 1) * 65535).astype("uint16")
-            write_tiff(target / f"a{90000 + n:08d}.tif", img)
+        n = 0
+        for ti in self.current.items:
+            for k in range(ti.duration):                           # a snippet may be longer than one frame
+                frame = ti.mpi.log_frame(ti.source_start + k)      # camera log 0–1
+                ys = np.linspace(0, frame.shape[0] - 1, h).astype(int)
+                xs = np.linspace(0, frame.shape[1] - 1, w).astype(int)
+                img = (np.clip(frame[ys][:, xs], 0, 1) * 65535).astype("uint16")
+                write_tiff(target / f"a{90000 + n:08d}.tif", img)
+                n += 1
         return True
 
     def IsRenderingInProgress(self):

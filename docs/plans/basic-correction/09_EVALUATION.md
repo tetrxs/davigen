@@ -42,3 +42,15 @@ The footage itself stays out of the repo.
 ## Done when
 
 The numbers are met or understood, and the summary is saved as `docs/concepts/BASIC_CORRECTION_RESULTS.md`.
+
+## Progress (2026-09-28)
+
+- [`davigen/basic/evaluate.py`](../../../davigen/basic/evaluate.py): because `AddVersion` copies the user's grade,
+  `DAVIGEN_AUTO` differs from the user's version **only in nodes 01–04**. So the evaluation renders both versions
+  at the same frame through the whole pipeline and compares them. No node of the user's grade has to be disabled
+  or changed (task 2 needed `SetNodeEnabled` for that). Only the active version is switched, and restored.
+  Caveat: a hand grade that put its exposure or white balance into `05`/`06` or elsewhere counts twice.
+- Metrics per clip: exposure difference in stops, white-balance angle, mean ΔE2000; summary with the acceptance
+  targets, worst clips and flag precision/recall. Saved as `<timeline>_evaluation.json` and `.md` next to the
+  record. The home screen's *Compare with my grade* runs it on the current timeline.
+- Still to do: the test set (clips from the user's hand-graded projects) and the tuning runs.

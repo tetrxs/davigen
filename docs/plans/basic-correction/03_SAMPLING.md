@@ -63,3 +63,20 @@ Run on a real project with about 20 clips:
 
 A function `samples_for(timeline) -> {item_id: [ndarray DI thumbnails]}` works on a real project and the cache is
 reused on a second run.
+
+## Result (2026-09-28)
+
+Code done: [`davigen/basic/sampling.py`](../../../davigen/basic/sampling.py), tests in
+[`tests/test_basic_sampling.py`](../../../tests/test_basic_sampling.py). The check in Resolve is still open: the
+screen was locked while the user was away, and Resolve Free only runs scripts from its menu.
+
+- Thumbnails are cached **in camera log, as uint16**, not as float16 DWG: a changed input LUT needs no new render,
+  and 16-bit keeps the camera's precision. The input LUT is applied when a sample is used.
+- A clip with a higher frame rate than the timeline (59.94 fps DJI in a 25 fps project) gets snippets of
+  `ceil(clip fps / timeline fps)` source frames, so each fills at least one timeline frame. TIFFs are mapped back
+  by the items' real durations, and each snippet's first frame is its sample.
+- The analysis timeline uses *scale full frame with crop*, so clips of another aspect ratio are never letterboxed
+  (black bars would count as picture).
+- After the render the project's davigen master render preset is loaded again.
+- [`scripts/basic_offline.py`](../../../scripts/basic_offline.py) runs the whole analysis on camera files with
+  ffmpeg instead of Resolve (it matched Resolve's render within 0.001 in step 01), for tuning without Resolve.

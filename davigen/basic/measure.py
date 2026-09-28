@@ -256,13 +256,18 @@ def _sample(di: np.ndarray, output_lut, clip_level, ms: dict) -> Sample:
         s.skin_hue = _circular_mean(hue[skin])
     s.dominant_fraction = _dominant(hue, chroma, valid, ms["dominant_hue"])
 
-    # high key / low key
+    # high key: bright *and* bright-looking content (snow, beach, fog). Judged on the balanced frame with its key
+    # moved to grey: over-exposed footage looks washed out too, but at the right exposure it has shadows and
+    # colour again; snow doesn't
     lab = p.display_to_lab(display)
     c_star = p.chroma(lab)
-    shadows = lum < GREY_LINEAR * 2.0 ** -2
     hk = ms["high_key"]
-    s.high_key = bool(s.exposure_stops > hk["min_stops"] and shadows.mean() < hk["max_shadow_fraction"]
-                      and float(c_star[valid].mean()) < hk["max_chroma"])
+    s.high_key = False
+    if s.exposure_stops > hk["min_stops"]:
+        at_grey = p.apply_lut(p.to_log(lin / np.asarray(s.illuminant) * (GREY_LINEAR / key)), output_lut)
+        shadows = (lum / key) < 2.0 ** -2
+        s.high_key = bool(shadows[valid].mean() < hk["max_shadow_fraction"]
+                          and float(p.chroma(p.display_to_lab(at_grey))[valid].mean()) < hk["max_chroma"])
     _contrast(s, di, display, lum, valid)
     y = p.luminance(display)
     usable = valid & (y > 0.1) & (y < 0.9)

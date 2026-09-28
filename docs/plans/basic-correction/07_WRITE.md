@@ -62,3 +62,18 @@ On a copy of a real project:
 ## Done when
 
 The tests pass, and the Resolve check above was done on a real project.
+
+## Result (2026-09-28)
+
+Code done: [`davigen/basic/write.py`](../../../davigen/basic/write.py), tests in
+[`tests/test_basic_write.py`](../../../tests/test_basic_write.py) against a fake Resolve that mirrors step 01
+([`tests/fake_resolve.py`](../../../tests/fake_resolve.py)). The check in Resolve on a project copy is open (see
+03). Notes:
+
+- Markers sit on the timeline item (they move with the clip). Yellow: overall confidence below
+  `confidence_flag_below`. Red: not in its colour group, or no node structure. Confident clips get no marker;
+  their flags are in the report.
+- A clip without any grade gets the node structure first (the same as *Assign groups & nodes*), in its user
+  version. That is the only change davigen makes outside `DAVIGEN_AUTO`, and only on untouched clips.
+- The user version's name is kept in the record, so a *Recompute all* while `DAVIGEN_AUTO` is active still knows
+  which version is the user's.

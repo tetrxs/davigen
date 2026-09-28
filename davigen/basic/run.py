@@ -6,6 +6,7 @@ New project wizard and the 'davigen Basic Correction' menu entry.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -85,7 +86,7 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
         have = cached.setdefault(it.path, cache.load(it.path))
         for f in it.frames:
             if f not in have and (it.path, f) not in todo:
-                todo[(it.path, f)] = sampling.Request((it.path, f), it.mpi, f)
+                todo[(it.path, f)] = sampling.Request((it.path, f), it.mpi, f, sampling.span_for(it.fps, tl_fps))
     rendered: dict[tuple, np.ndarray] = {}
     if todo:
         rep.detail("sample", f"rendering {len(todo)} frames of {len({k[0] for k in todo})} clips")
@@ -242,6 +243,7 @@ def _record(proj, timeline, items: list[Item], s: dict, dry_run: bool, recompute
         entries.append({
             "id": it.id, "name": it.name, "path": it.path, "group": it.group,
             "timeline_start": it.timeline_start, "source_start": it.start, "source_frames": it.duration,
+            "clip_fps": it.fps,
             "frames": it.frames, "meta": vars(it.meta),
             "measurement": it.measurement.to_dict() if it.measurement else None,
             "correction": shot.correction.to_dict() if shot else None,
@@ -295,3 +297,36 @@ def flow(resolve, cfg: Config, options: dict, rep) -> None:
     """Adapter for creator.run / App._start: options = {dry_run, recompute, timeline}."""
     basic_correction(resolve, cfg, rep, dry_run=bool(options.get("dry_run")),
                      recompute=bool(options.get("recompute")), timeline_name=options.get("timeline", ""))
+
+
+EVALUATE_STEPS = [("render", "Render your version and DAVIGEN_AUTO"), ("score", "Compare"), ("save", "Save")]
+
+
+def evaluate_flow(resolve, cfg: Config, options: dict, rep) -> None:
+    """Compare DAVIGEN_AUTO with the user's own version on the current timeline (plan step 09)."""
+    from ..creator import project_base  # noqa: PLC0415
+    from . import evaluate  # noqa: PLC0415
+    proj = resolve.GetProjectManager().GetCurrentProject()
+    base = project_base(proj)
+    timeline = find_timeline(proj, options.get("timeline", "")) if options.get("timeline") else proj.GetCurrentTimeline()
+    record = write.load_record(base, timeline.GetName())
+    if not record.get("items"):
+        raise ResolveError(f"Run Basic correction on {timeline.GetName()} first")
+    rep.start("render")
+    results = evaluate.evaluate_timeline(resolve, proj, timeline, record, user_version=options.get("user_version", ""),
+                                         progress=lambda v: rep.detail("render", v),
+                                         restore_preset=_master_preset(proj))
+    rep.finish("render", f"{len(results)} clips, one frame each, both versions")
+    rep.start("score")
+    summary = evaluate.summarise(results)
+    rep.finish("score", f"median ΔE2000 {summary['delta_e']['median']:.1f}" if results else "nothing to compare")
+    rep.start("save")
+    folder = base / "00_ADMIN" / "PROJECT_INFO" / "basic_correction"
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = f"{timeline.GetName()}_evaluation"
+    (folder / f"{stem}.json").write_text(json.dumps({"results": results, "summary": summary}, indent=1),
+                                         encoding="utf-8")
+    (folder / f"{stem}.md").write_text(evaluate.report_markdown(summary, f"Basic correction · {timeline.GetName()}"),
+                                       encoding="utf-8")
+    rep.finish("save", f"00_ADMIN/PROJECT_INFO/basic_correction/{stem}.md")
+    rep.result = {"summary": summary}

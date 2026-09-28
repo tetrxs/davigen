@@ -189,6 +189,7 @@ function renderCurrent(c) {
         <label class="check" title="Overwrite existing DAVIGEN_AUTO versions (changes made inside them are lost)"><input type="checkbox" id="b-re"> Recompute all</label>
         <button class="primary" id="m-basic">Basic correction</button>
         <button class="link" id="m-basic-report">Last report</button>
+        <button class="link" id="m-basic-eval" title="Render your own version and DAVIGEN_AUTO at the same frames and measure how far apart they are">Compare with my grade</button>
       </div>
     </div>`;
 }
@@ -199,6 +200,7 @@ function startBasic(options = {}) {
   runFlow("/api/basic", options.dry_run ? "Basic correction · dry run" : "Basic correction", options);
 }
 let basicRun = false;
+let evalRun = false;
 
 const MAINTENANCE = {
   assign: ["/api/assign", "Assigning groups"],
@@ -210,6 +212,7 @@ $("#current").addEventListener("click", async (e) => {
   if (flow) return runFlow(...MAINTENANCE[flow.dataset.flow]);
   if (e.target.closest("#m-basic")) return startBasic({ dry_run: $("#b-dry").checked, recompute: $("#b-re").checked });
   if (e.target.closest("#m-basic-report")) return showBasicReport();
+  if (e.target.closest("#m-basic-eval")) { evalRun = true; return runFlow("/api/basic/evaluate", "Basic correction vs your grade", {}); }
   if (e.target.closest("#m-add")) {
     state.mode = "add";
     reset();
@@ -777,8 +780,9 @@ async function pollProgress() {
     ? `<div class="notice"><h3>Notes</h3><ul>${p.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : "";
   $("#manual").innerHTML = p.manual.length
     ? `<div class="notice manual"><h3>Left to do in Resolve</h3><ul>${p.manual.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : "";
-  $("#report").innerHTML = basicRun && p.result && p.result.rows ? reportTable(p.result.rows, p.result.timeline) : "";
-  basicRun = false;
+  $("#report").innerHTML = basicRun && p.result && p.result.rows ? reportTable(p.result.rows, p.result.timeline)
+    : evalRun && p.result && p.result.summary ? evalTable(p.result.summary) : "";
+  basicRun = evalRun = false;
 }
 
 // ------------------------------------------------------------ basic correction
@@ -811,6 +815,19 @@ document.addEventListener("click", async (e) => {
   const r = await api("/api/basic/goto", { id: row.dataset.goto });
   if (!r.ok) notify("That clip isn't on the current timeline anymore.");
 });
+function evalTable(s) {
+  if (!s.clips) return '<p class="muted">Nothing to compare: no clip has both your version and DAVIGEN_AUTO.</p>';
+  const pct = (v) => (v === null || v === undefined ? "–" : `${Math.round(v * 100)} %`);
+  return `<div class="report"><h3>DAVIGEN_AUTO vs your grade · ${s.clips} clips</h3>
+    <table class="report-table"><tbody>
+      <tr><td>Exposure difference (median / 90 %)</td><td class="num">${num(s.exposure_stops.median)} / ${num(s.exposure_stops.p90)} stops</td></tr>
+      <tr><td>White balance angle (median / 90 %)</td><td class="num">${num(s.wb_degrees.median, 1)}° / ${num(s.wb_degrees.p90, 1)}°</td></tr>
+      <tr><td>Colour difference ΔE2000 (median / 90 %)</td><td class="num">${num(s.delta_e.median, 1)} / ${num(s.delta_e.p90, 1)}</td></tr>
+      <tr><td>Clips needing no or only a small tweak (ΔE &lt; 3)</td><td class="num">${pct(s.small_or_none)}</td></tr>
+      <tr><td>Big misses (ΔE &gt; 5) that had a marker</td><td class="num">${s.big_misses ? pct(s.big_misses_flagged) + ` of ${s.big_misses}` : "none"}</td></tr>
+    </tbody></table>
+    <p class="muted">Worst: ${s.worst.slice(0, 5).map((w) => `${esc(w.clip)} (${num(w.delta_e, 1)})`).join(", ")}</p></div>`;
+}
 async function showBasicReport() {
   const r = await api("/api/basic/report");
   $("#run-title").textContent = "Basic correction";

@@ -1,6 +1,6 @@
 # Concept: Basic Correction
 
-**Status:** concept; the API spike (step 01) is done, see §12. The step-by-step plan is in
+**Status:** built (steps 01–08 in code, tested against a fake Resolve); the check in Resolve and the tuning on hand-graded clips are open. API answers in §12. The step-by-step plan is in
 [docs/plans/basic-correction/](../plans/basic-correction/00_OVERVIEW.md).
 
 Basic Correction fills the technical nodes of every clip grade (`01_EXPOSURE`, `02_WHITE_BALANCE`,

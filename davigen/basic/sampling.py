@@ -9,6 +9,7 @@ changed LUT needs no new render.
 from __future__ import annotations
 
 import hashlib
+import math
 import shutil
 import struct
 import tempfile
@@ -138,6 +139,14 @@ class Request:
     key: tuple                          # anything that identifies the sample, e.g. (file path, frame)
     media_pool_item: object
     frame: int
+    span: int = 1                       # source frames to append: a 60p clip needs 3 to fill one 25p frame
+
+
+def span_for(clip_fps: float, timeline_fps: float) -> int:
+    """Source frames that make at least one timeline frame (the snippet's first frame is the sample)."""
+    if clip_fps <= 0 or timeline_fps <= 0:
+        return 1
+    return max(1, math.ceil(clip_fps / timeline_fps - 1e-6))
 
 
 def render(resolve, project, requests: list[Request], width: int, progress=None,
@@ -164,11 +173,12 @@ def render(resolve, project, requests: list[Request], width: int, progress=None,
         project.SetCurrentTimeline(timeline)
         timeline.SetSetting("useCustomSettings", "1")
         timeline.SetSetting("timelineInputResMismatchBehavior", "scaleToCrop")   # never letterbox: bars aren't picture
-        infos = [{"mediaPoolItem": r.media_pool_item, "startFrame": r.frame, "endFrame": r.frame + 1,
+        infos = [{"mediaPoolItem": r.media_pool_item, "startFrame": r.frame, "endFrame": r.frame + r.span,
                   "mediaType": 1} for r in requests]       # endFrame is exclusive (step 01)
         items = mp.AppendToTimeline(infos) or []
         if len(items) != len(requests):
             raise ResolveError(f"Resolve put {len(items)} of {len(requests)} sample frames on the analysis timeline")
+        lengths = [max(1, int(i.GetDuration() or 1)) for i in items]
         if not project.SetCurrentRenderFormatAndCodec(RENDER_FORMAT, RENDER_CODEC):
             raise ResolveError("This Resolve can't render uncompressed 16-bit TIFF")
         w = int(timeline.GetSetting("timelineResolutionWidth") or 1920)
@@ -187,11 +197,12 @@ def render(resolve, project, requests: list[Request], width: int, progress=None,
                 progress(int(status.get("CompletionPercentage") or 0))
             time.sleep(0.3)
         files = sorted(tmp.glob("*.tif*"))
-        if len(files) != len(requests):
+        if len(files) != sum(lengths):
             status = project.GetRenderJobStatus(job) or {}
-            raise ResolveError(f"The analysis render gave {len(files)} frames for {len(requests)} "
+            raise ResolveError(f"The analysis render gave {len(files)} frames for {sum(lengths)} "
                                f"({status.get('JobStatus', 'unknown')}: {status.get('Error', '')})")
-        return {r.key: thumbnail(read_tiff(f)) for r, f in zip(requests, files)}
+        firsts = [sum(lengths[:n]) for n in range(len(lengths))]    # each snippet's first frame is its sample
+        return {r.key: thumbnail(read_tiff(files[i])) for r, i in zip(requests, firsts)}
     finally:
         if job:
             project.DeleteRenderJob(job)
