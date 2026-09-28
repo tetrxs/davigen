@@ -18,8 +18,9 @@ test.
    - skin median, when skin covers at least 2 %
    - high-key and low-key tests (concept §5.1)
 3. **EV100** from ISO, aperture and shutter.
-   - The scanner already reads ISO. Aperture and shutter are added in `mediainfo.py` / `scanner.py` (exiftool
-     `FNumber`, `ExposureTime`), stored in the clip metadata at import, and read back here.
+   - The scanner already reads ISO. Aperture, shutter, white balance mode and Kelvin are added in `scanner.py`
+     (`scanner.exposure`, exiftool `FNumber`, `ExposureTime`, `WhiteBalance`, `ColorTempKelvin`). They are read at
+     analysis time from the file, not stored at import, so existing projects work too.
    - Missing values mean no EV. The correction then skips the night rules and lowers the confidence.
 4. **White balance:**
    - four estimators (concept §5.2) on the linear DWG midtones
@@ -50,3 +51,19 @@ Build images in DWG/Intermediate with known properties:
 ## Done when
 
 All tests pass, and `measure(samples, clip_meta, simulator) -> Measurement` is the only entry point.
+
+## Result (2026-09-28)
+
+Done: [`davigen/basic/measure.py`](../../../davigen/basic/measure.py), thresholds in `[basic_correction.measure]`
+and `[basic_correction.flags]` of `config/workflow.toml`, loaded by
+[`davigen/basic/settings.py`](../../../davigen/basic/settings.py). Tests in
+[`tests/test_basic_measure.py`](../../../tests/test_basic_measure.py). Notes:
+
+- Entry point is `measure(samples, meta, output_lut, settings)`; the output LUT path stands in for the simulator.
+- Clipping is found as a flat plateau at the clip's per-channel maximum, across all its samples, so no per-camera
+  clip level is needed.
+- EV100 counts only when the picture agrees (ND filters, see concept §5.1). Night = low EV100 *and* a dark frame.
+- On the real spike frames (6 samples, 96 × 64): 0.4 s per clip including LUTs. The clip measured +2.7 stops over
+  grey with 9 % clipped sky, which matches its waveform. Skin detection found beige walls (2 % of the frame): the
+  skin mask needs the evaluation set to be tuned.
+- Lumix writes `FNumber`, `ExposureTime`, `WhiteBalance` and `ColorTempKelvin`; DJI Air 3 writes none of them.

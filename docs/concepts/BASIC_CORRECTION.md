@@ -149,7 +149,10 @@ Order matters. Each node is computed on the output of the ones before it, in the
 EV100 = log2(N² / t) − log2(ISO / 100)
 ```
 
-This tells a dark scene apart from an underexposed one, which pixels alone can't do:
+This tells a dark scene apart from an underexposed one, which pixels alone can't do. **But** video is often shot
+through a (variable) ND filter, which the metadata doesn't record: the spike clip, bright daylight at f/2.8, 1/50 s,
+ISO 640, gives EV100 5.9. So EV100 only counts when the picture agrees: a low EV100 on a bright frame means ND, not
+night. DJI drones write no exposure data at all.
 
 | EV100 | Scene | Target |
 |---|---|---|

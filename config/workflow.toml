@@ -181,3 +181,34 @@ codec = "H264"
 folder = "05_EXPORTS/07_1X1"
 filename = "{project}_SOCIAL_1X1_1080_v001"
 default = false
+
+# Basic Correction (docs/concepts/BASIC_CORRECTION.md). Every threshold lives here, not in the code;
+# the values are first guesses until the evaluation (plan step 09) tunes them on hand-graded clips.
+# Stops are relative to 18 % grey, fractions are of the frame, angles in degrees.
+[basic_correction]
+samples = { min = 5, per_seconds = 4, max = 12 }
+analysis_width = 480
+confidence_flag_below = 0.6
+
+[basic_correction.measure]
+centre_sigma = 0.35                 # soft centre weighting: Gaussian sigma in fractions of frame width and height
+black_stops = 5.0                   # darker than grey − 5 stops counts as near black
+clip_tolerance = 0.002              # DaVinci Intermediate distance to the clip's maximum that still counts as clipped
+clip_min_fraction = 0.003           # a maximum only counts as a clip level if this much of the clip sits on it
+midtone_stops = 2.5                 # white balance uses pixels within ± this of the frame's key
+skin = { hue = [98, 148], chroma = [0.03, 0.22], luma = [0.15, 0.90], min_fraction = 0.02, line = 123, max_off = 8 }
+high_key = { min_stops = 0.7, max_shadow_fraction = 0.05, max_chroma = 15 }
+low_key = { min_black_fraction = 0.35, min_bright_fraction = 0.08 }
+white_balance = { minkowski_p = 6, edge_p = 6, achromatic_top = 0.1, achromatic_max_angle = 3.0, iterations = 3 }
+dominant_hue = { bin = 30, min_chroma = 0.04 }
+haze = { max_range_stops = 5.0, max_local_contrast = 0.012 }
+
+[basic_correction.flags]
+clipped = 0.03                      # "clipped highlights"
+wb_spread = 5.0                     # "no neutral surfaces": estimators disagree by more than this …
+achromatic_min = 0.01               # … or fewer achromatic pixels than this
+dominant = 0.5                      # "dominant colour"
+mixed_light = 4.0                   # "mixed light": halves of the frame disagree by more than this
+exposure_spread = 0.5               # "changes within clip", in stops …
+cct_spread = 800                    # … or in kelvin
+night_ev = 5.0                      # EV100 below this is night

@@ -185,3 +185,51 @@ def chroma(lab):
     """CIELAB C* from Lab values."""
     lab = np.asarray(lab, dtype="float64")
     return np.hypot(lab[..., 1], lab[..., 2])
+
+
+def ycbcr(display):
+    """Rec.709 Y'CbCr of a display image: (Y' 0–1, Cb, Cr ±0.5), as a vectorscope sees it."""
+    display = np.asarray(display, dtype="float64")
+    y = display @ REC709_LUMA
+    return y, (display[..., 2] - y) / 1.8556, (display[..., 0] - y) / 1.5748
+
+
+def vectorscope_hue(cb, cr):
+    """Angle on the vectorscope in degrees, counter-clockwise from +Cb. Resolve's skin line is at about 123°."""
+    return np.degrees(np.arctan2(cr, cb)) % 360.0
+
+
+# ------------------------------------------------------------------------------------------------ white
+
+def dwg_to_xy(linear):
+    """CIE xy chromaticity of linear DWG values."""
+    colour = _colour()
+    xyz = np.asarray(linear, dtype="float64") @ colour.RGB_COLOURSPACES["DaVinci Wide Gamut"].matrix_RGB_to_XYZ.T
+    return xyz[..., :2] / np.maximum(xyz.sum(-1, keepdims=True), 1e-12)
+
+
+def xy_to_dwg(xy, luminance: float = 1.0):
+    """Linear DWG RGB of a chromaticity at the given luminance Y."""
+    colour = _colour()
+    x, y = float(xy[0]), float(xy[1])
+    xyz = np.array([x / y, 1.0, (1 - x - y) / y]) * luminance
+    return xyz @ colour.RGB_COLOURSPACES["DaVinci Wide Gamut"].matrix_XYZ_to_RGB.T
+
+
+def cct_duv(xy) -> tuple[float, float]:
+    """Correlated colour temperature and Duv (distance from the blackbody locus), Ohno 2013."""
+    colour = _colour()
+    cct, duv = colour.temperature.uv_to_CCT(colour.xy_to_UCS_uv(np.asarray(xy, dtype="float64")), method="Ohno 2013")
+    return float(cct), float(duv)
+
+
+def cct_duv_to_xy(cct: float, duv: float):
+    colour = _colour()
+    return colour.UCS_uv_to_xy(colour.temperature.CCT_to_uv(np.array([cct, duv]), method="Ohno 2013"))
+
+
+def angle_deg(a, b) -> float:
+    """Angle between two RGB vectors in degrees (the usual white balance error measure)."""
+    a, b = np.asarray(a, dtype="float64"), np.asarray(b, dtype="float64")
+    cos = float(a @ b / max(np.linalg.norm(a) * np.linalg.norm(b), 1e-12))
+    return float(np.degrees(np.arccos(min(max(cos, -1.0), 1.0))))
