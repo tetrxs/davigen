@@ -20,6 +20,7 @@ instead of guessing.
 - [10. Configuration](#10-configuration)
 - [11. How we know it works](#11-how-we-know-it-works)
 - [12. Answers from the API spike](#12-answers-from-the-api-spike)
+- [13. Next: learning](#13-next-learning)
 
 ---
 
@@ -415,3 +416,25 @@ tested there unless it says *untested*.
 
 - `TimelineItem.AddMarker(frame, color, name, note, duration, customData)` takes custom data;
   `GetMarkerByCustomData` and `DeleteMarkerByCustomData` work, and a marker without custom data survives the delete.
+
+## 13. Next: learning
+
+The measured, rule-based first pass comes first because it can explain every value and needs no training data.
+Learning can make it better in three steps, cheapest first:
+
+1. **Learn from the user's own grades (planned next).** *Compare with my grade* (§11) already measures, per clip,
+   how far `DAVIGEN_AUTO` is from the user's version in exposure, white balance and colour. The median of those
+   differences over a few projects is the user's taste: where they like skin, how much warmth they keep at golden
+   hour, how much contrast. davigen stores them as offsets to the targets in `[basic_correction]` (a per-user file
+   in `data/`, so updates don't overwrite it). No model, a few numbers, fully explainable, and it improves with
+   every graded project.
+2. **A small learned white-balance estimator.** Colour constancy is a well-studied problem with public data:
+   Gehler-Shi (568 raw images), Cube+ (1,707), INTEL-TAU (7,022). Fast Fourier Color Constancy (Barron & Tsai 2017)
+   is a small histogram-based model that runs in plain numpy in milliseconds and is far more accurate than grey
+   world. It would become a fifth estimator next to the four in §5.2, trained in linear DWG. Downloading the
+   datasets (several GB) needs the user's go-ahead.
+3. **A learned first grade.** MIT-Adobe FiveK (5,000 raw photos, each retouched by five experts) is the standard
+   set for learning exposure, white balance and tone from image statistics; it is licensed for research. A small
+   regressor from the measurements in §5 to the four node values, fine-tuned on the user's own grades, is the
+   long-term goal. Its output would still go through the same limits, flags and scenes, so it can never do more
+   than the rules allow.

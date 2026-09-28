@@ -2,7 +2,6 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
-import fake_resolve as fr  # noqa: E402 - tests/ is on sys.path under pytest
 from davigen import colormath  # noqa: E402
 from davigen.basic import evaluate, run, write  # noqa: E402
 from davigen.config import Config  # noqa: E402

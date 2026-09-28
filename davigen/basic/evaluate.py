@@ -31,6 +31,9 @@ class Score:
     exposure: float             # stops, test − reference (display, linearised)
     wb_angle: float             # degrees between the grey-world light of both images
     delta_e: float              # mean CIEDE2000
+    kelvin: float = 0.0         # CCT of the grey-world light, test − reference (warmer test → negative)
+    black: float = 0.0          # 0.5th percentile of display luma, test − reference
+    chroma: float = 1.0         # mean CIELAB C*, test / reference
 
 
 def score(reference, test) -> Score:
@@ -45,8 +48,17 @@ def score(reference, test) -> Score:
     wb = p.angle_deg(lin_r[keep].mean(0) / max(float(y_r[keep].mean()), 1e-9),
                      lin_t[keep].mean(0) / max(float(y_t[keep].mean()), 1e-9))
     colour = _colour()
-    de = colour.delta_E(p.display_to_lab(ref), p.display_to_lab(tst), method="CIE 2000")
-    return Score(exposure=exposure, wb_angle=wb, delta_e=float(np.mean(de)))
+    lab_r, lab_t = p.display_to_lab(ref), p.display_to_lab(tst)
+    de = colour.delta_E(lab_r, lab_t, method="CIE 2000")
+    rec709 = colour.RGB_COLOURSPACES["ITU-R BT.709"]
+
+    def cct(lin):
+        xyz = lin[keep].mean(0) @ rec709.matrix_RGB_to_XYZ.T
+        return p.cct_duv(xyz[:2] / max(float(xyz.sum()), 1e-9))[0]
+    black = float(np.percentile(p.luminance(tst), 0.5) - np.percentile(p.luminance(ref), 0.5))
+    chroma = float(p.chroma(lab_t).mean() / max(float(p.chroma(lab_r).mean()), 1e-6))
+    return Score(exposure=exposure, wb_angle=wb, delta_e=float(np.mean(de)), kelvin=cct(lin_t) - cct(lin_r),
+                 black=black, chroma=chroma)
 
 
 def summarise(results: list[dict]) -> dict:

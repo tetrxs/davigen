@@ -28,7 +28,7 @@ UI_DIR = Path(__file__).resolve().parent / "ui"
 # Resolve's scripting API isn't thread-safe: requests that talk to Resolve run one at a time.
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
 RESOLVE_ROUTES = {"/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
-                  "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto"}
+                  "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn"}
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
 
 
@@ -178,6 +178,14 @@ class App:
         record = write.load_record(creator.project_base(proj), timeline.GetName())
         return {"timeline": timeline.GetName(), "date": record.get("date", ""), "dry_run": record.get("dry_run"),
                 "rows": basic.rows(record)}
+
+    def basic_learn(self, body: dict) -> dict:
+        """Take the last 'Compare with my grade' of the current timeline over into the learned offsets."""
+        from .basic import run as basic  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        learned = basic.learn_from_evaluation(creator.project_base(proj), proj.GetCurrentTimeline().GetName(),
+                                              self.cfg)
+        return {"ok": True, "learned": learned}
 
     def basic_goto(self, body: dict) -> dict:
         from .basic import run as basic  # noqa: PLC0415
@@ -376,6 +384,7 @@ def make_handler(app: App):
         "/api/basic": app.start_basic,
         "/api/basic/goto": app.basic_goto,
         "/api/basic/evaluate": app.start_evaluate,
+        "/api/basic/learn": app.basic_learn,
         "/api/open-project": app.open_project,
         "/api/reveal": app.reveal,
         "/api/vendor-lut": app.vendor_lut,

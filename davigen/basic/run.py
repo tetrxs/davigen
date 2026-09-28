@@ -330,3 +330,14 @@ def evaluate_flow(resolve, cfg: Config, options: dict, rep) -> None:
                                        encoding="utf-8")
     rep.finish("save", f"00_ADMIN/PROJECT_INFO/basic_correction/{stem}.md")
     rep.result = {"summary": summary}
+
+
+def learn_from_evaluation(base: Path, timeline_name: str, cfg: Config) -> dict:
+    """Update the learned offsets from the last 'Compare with my grade' of a timeline."""
+    path = base / "00_ADMIN" / "PROJECT_INFO" / "basic_correction" / f"{timeline_name}_evaluation.json"
+    try:
+        results = json.loads(path.read_text(encoding="utf-8"))["results"]
+    except (OSError, ValueError, KeyError):
+        raise ResolveError(f"Compare with your grade on {timeline_name} first") from None
+    diffs = [r["score"] for r in results if "kelvin" in r["score"]]
+    return settings_mod.learn(diffs, settings_mod.load(cfg.workflow, learned=False))

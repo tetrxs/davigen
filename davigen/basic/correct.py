@@ -163,6 +163,7 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
 
     if m.exposure_spread > fl["exposure_spread"]:
         confidence -= conf["changes"]
+    stops += settings.get("learned", {}).get("exposure", 0.0)      # the user's taste (concept §13)
     limited = abs(stops) > ex["max_stops"]
     stops = max(-ex["max_stops"], min(ex["max_stops"], stops))
     key_di = float(p.to_log(0.18 * 2.0 ** key))
@@ -211,6 +212,7 @@ def _white_balance(m: ms.Measurement, settings: dict, values: dict, exposure: p.
     neutral_cct, neutral_duv = p.cct_duv(neutral_xy)
     cct, duv = m.cct, m.duv
     new_cct = cct + _strength(cct, wb["cct_strength"]) * (wb["neutral_cct"] - cct)
+    new_cct = min(max(new_cct + settings.get("learned", {}).get("kelvin", 0.0), 1800.0), 20000.0)
     duv_error = duv - neutral_duv
     limited = abs(duv_error) > wb["max_duv"]
     new_duv = duv - math.copysign(min(abs(duv_error), wb["max_duv"]), duv_error)   # Duv fully, up to max_duv
@@ -253,7 +255,8 @@ def white_balance_cdl(m: ms.Measurement, exposure: p.Cdl, cct: float, duv: float
 def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values: dict):
     co, conf = settings["contrast"], settings["confidence"]
     lo_c, hi_c = co["range"]
-    black_lo, black_hi = co["black"]
+    shift = settings.get("learned", {}).get("black", 0.0)
+    black_lo, black_hi = (max(0.0, v + shift) for v in co["black"])
 
     def pct(c):
         return sim.luma_percentiles(before + [p.Cdl.contrast(c)])
@@ -286,7 +289,8 @@ def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values
 def _saturation(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values: dict):
     sa, conf, fl = settings["saturation"], settings["confidence"], settings["flags"]
     lo_s, hi_s = sa["range"]
-    lo_c, hi_c = sa["chroma"]
+    scale = settings.get("learned", {}).get("chroma", 1.0)
+    lo_c, hi_c = (v * scale for v in sa["chroma"])
 
     def chroma(s):
         return sim.mean_chroma(before + [p.Cdl.saturation(s)])

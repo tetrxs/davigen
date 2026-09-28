@@ -265,3 +265,12 @@ split_ev = 3.0                      # … so does a jump in EV100 …
 split_cct = 1500                    # … or in illuminant CCT between neighbours with good white balance
 pull_to_scene = 0.3                 # confident clips move this far towards the scene's reference
 pull_fixed_wb = 0.7                 # with the same manual Kelvin on every shot, white balance leans this far on the scene
+
+# Learning from your grades (concept §13): 'Compare with my grade' → 'Learn from it' moves the targets towards your
+# own versions. What was learned is stored per user in data/basic_learned.json; delete that file to forget it.
+[basic_correction.learning]
+rate = 0.5                          # share of the median difference taken over per comparison
+max_exposure = 1.0                  # the learned offsets never go beyond these
+max_kelvin = 1500
+max_black = 0.03
+chroma = [0.7, 1.4]

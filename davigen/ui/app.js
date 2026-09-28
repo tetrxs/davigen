@@ -826,8 +826,20 @@ function evalTable(s) {
       <tr><td>Clips needing no or only a small tweak (ΔE &lt; 3)</td><td class="num">${pct(s.small_or_none)}</td></tr>
       <tr><td>Big misses (ΔE &gt; 5) that had a marker</td><td class="num">${s.big_misses ? pct(s.big_misses_flagged) + ` of ${s.big_misses}` : "none"}</td></tr>
     </tbody></table>
-    <p class="muted">Worst: ${s.worst.slice(0, 5).map((w) => `${esc(w.clip)} (${num(w.delta_e, 1)})`).join(", ")}</p></div>`;
+    <p class="muted">Worst: ${s.worst.slice(0, 5).map((w) => `${esc(w.clip)} (${num(w.delta_e, 1)})`).join(", ")}</p>
+    <div class="row gap"><button class="secondary" id="b-learn" title="Move Basic correction's targets halfway towards your grades (exposure, warmth, black point, saturation)">Learn from my grades</button>
+      <span class="muted" id="b-learned"></span></div></div>`;
 }
+document.addEventListener("click", async (e) => {
+  if (!e.target.closest("#b-learn")) return;
+  const r = await api("/api/basic/learn", {});
+  if (!r.ok) return notify(r.error);
+  const l = r.learned;
+  $("#b-learn").disabled = true;
+  $("#b-learned").textContent = `Learned from ${l.clips} clips: exposure ${l.exposure >= 0 ? "+" : ""}${num(l.exposure)} stops, `
+    + `${l.kelvin >= 0 ? "+" : ""}${Math.round(l.kelvin)} K, black ${l.black >= 0 ? "+" : ""}${num(l.black, 3)}, saturation ×${num(l.chroma)}. `
+    + "Used from the next Basic correction on.";
+});
 async function showBasicReport() {
   const r = await api("/api/basic/report");
   $("#run-title").textContent = "Basic correction";
