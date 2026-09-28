@@ -104,7 +104,9 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     rep.start("markers")
     marked = sum(apply.mark_clip(clips[int(p.id)], p.segments, apply.clip_fps(clips[int(p.id)], tl_fps))
                  for p in plans)
-    rep.finish("markers", f"{marked} markers on {len(plans)} clips")
+    flags = [apply.tag_clip(clips[int(p.id)], p.segments, p.watch.duration, s["clip_flags"]) for p in plans]
+    rep.finish("markers", f"{marked} markers on {len(plans)} clips · flags: {flags.count('Green')} green, "
+               f"{flags.count('Red')} red · keywords 'davigen good' / 'davigen speech' for the Media Pool search")
 
     # --------------------------------------------------------------------------------------- timeline
     rep.start("timeline")

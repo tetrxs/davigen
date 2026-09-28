@@ -303,6 +303,10 @@ speech_min = 1.5
 max_seconds = 6.0                   # at most this much of each good stretch (from its calmest part)
 min_rating = 0.5
 
+[edit_assist.clip_flags]
+flag_good_seconds = 4.0             # a green flag on clips with at least this much good footage …
+flag_bad_share = 0.5                # … a red one on clips with nothing good and at least this share unusable
+
 [edit_assist.transcribe]
 enabled = true
 model = "mlx-community/whisper-large-v3-turbo"   # Whisper large v3 turbo for MLX (~1.6 GB, downloaded once)

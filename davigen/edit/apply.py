@@ -47,6 +47,35 @@ def mark_clip(mpi, segments: list[sel.Segment], fps: float) -> int:
     return count
 
 
+def tag_clip(mpi, segments: list[sel.Segment], duration: float, cfg: dict) -> str:
+    """Clip-level result in the Media Pool: a flag (green: worth a look, red: nothing usable) and keywords
+    davigen can replace on the next run. Returns the flag colour set ('' for none)."""
+    good = sum(s.length for s in segments if s.kind == sel.GOOD)
+    bad = sum(s.length for s in segments if s.kind == sel.UNUSABLE)
+    speech = any(s.kind == sel.SPEECH for s in segments)
+    for colour in ("Green", "Red"):
+        try:
+            mpi.ClearFlags(colour)
+        except (AttributeError, TypeError):
+            pass
+    flag = ""
+    if good >= cfg["flag_good_seconds"]:
+        flag = "Green"
+    elif good < 1.0 and duration and bad / duration >= cfg["flag_bad_share"]:
+        flag = "Red"
+    if flag:
+        mpi.AddFlag(flag)
+    try:
+        current = [k.strip() for k in (mpi.GetMetadata("Keywords") or "").split(",") if k.strip()]
+    except (AttributeError, TypeError):
+        current = []
+    keep = [k for k in current if not k.startswith("davigen ")]
+    ours = (["davigen good"] if good >= cfg["flag_good_seconds"] else []) + (["davigen speech"] if speech else []) \
+        + (["davigen unusable"] if flag == "Red" else [])
+    mpi.SetMetadata({"Keywords": ",".join(keep + ours)})
+    return flag
+
+
 def mark_music(mpi, music: Music, fps: float) -> int:
     """Bars (and section starts) as markers on the music clip. Beats would be too many to read."""
     try:

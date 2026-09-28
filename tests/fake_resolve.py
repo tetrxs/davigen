@@ -77,6 +77,21 @@ class MediaPoolItem:
         self.markers = {f: m for f, m in self.markers.items() if m["customData"] != data}
         return True
 
+    def AddFlag(self, colour):
+        self.flags = getattr(self, "flags", set()) | {colour}
+        return True
+
+    def ClearFlags(self, colour):
+        self.flags = getattr(self, "flags", set()) - {colour}
+        return True
+
+    def GetMetadata(self, key=None):
+        return getattr(self, "metadata", {}).get(key, "") if key else getattr(self, "metadata", {})
+
+    def SetMetadata(self, data):
+        self.metadata = {**getattr(self, "metadata", {}), **data}
+        return True
+
     def GetClipProperty(self, key):
         return {"File Path": self.path, "FPS": str(self.fps), "Frames": str(self.frames)}.get(key, "")
 

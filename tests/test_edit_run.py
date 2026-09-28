@@ -38,6 +38,8 @@ def test_selects_only(project):
     tl = next(t for t in proj.timelines if t.name.startswith("TL_00_SELECTS_AUTO"))
     assert tl.name == "TL_00_SELECTS_AUTO_3X2_25_v001" and len(tl.items) >= 6
     assert record["selects_timeline"] == tl.name
+    assert clips[0].flags == {"Green"} and "davigen good" in clips[0].metadata["Keywords"]
+    assert "davigen speech" in clips[0].metadata["Keywords"]
     assert (base / "00_ADMIN/PROJECT_INFO/edit_assist.json").exists()
     # again: a new version, markers replaced not doubled
     run.edit_assist(resolve, Config(), Reporter(run.STEPS), base=base)
@@ -48,8 +50,12 @@ def test_selects_only(project):
 def test_user_markers_survive(project):
     resolve, proj, clips, base = project
     clips[1].AddMarker(3, "Yellow", "mine", "", 1, "")
+    clips[1].SetMetadata({"Keywords": "LUMIX_S1II,V-Log,beach"})
+    run.edit_assist(resolve, Config(), Reporter(run.STEPS), base=base)
     run.edit_assist(resolve, Config(), Reporter(run.STEPS), base=base)
     assert clips[1].markers[3]["name"] == "mine"
+    assert clips[1].metadata["Keywords"].split(",")[:3] == ["LUMIX_S1II", "V-Log", "beach"]      # the user's stay
+    assert clips[1].metadata["Keywords"].count("davigen good") == 1
 
 
 def test_rough_cut_to_music(project):
