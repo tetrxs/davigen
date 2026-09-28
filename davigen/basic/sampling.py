@@ -159,8 +159,9 @@ def render(resolve, project, requests: list[Request], width: int, progress=None,
     if not requests:
         return {}
     mp = project.GetMediaPool()
-    previous = project.GetCurrentTimeline()
-    old = find_timeline(project, ANALYSIS_TL)
+    current = project.GetCurrentTimeline()
+    previous = current.GetName() if current is not None else ""      # by name: deleting a timeline invalidates
+    old = find_timeline(project, ANALYSIS_TL)                         # the other timeline objects (Resolve 21)
     if old is not None:
         mp.DeleteTimelines([old])
     tmp = Path(tempfile.mkdtemp(prefix="davigen_analysis_"))
@@ -208,8 +209,9 @@ def render(resolve, project, requests: list[Request], width: int, progress=None,
             project.DeleteRenderJob(job)
         if timeline is not None:
             mp.DeleteTimelines([timeline])
-        if previous is not None:
-            project.SetCurrentTimeline(previous)
+        back = find_timeline(project, previous) if previous else None
+        if back is not None:
+            project.SetCurrentTimeline(back)
         if restore_preset:
             project.LoadRenderPreset(restore_preset)
         shutil.rmtree(tmp, ignore_errors=True)

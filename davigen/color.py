@@ -17,7 +17,7 @@ from . import colormath, drx, transforms
 from .config import DATA_DIR, LUT_DIR, TEMPLATE_DIR, Config, Output, Profile
 from .lut import Lut3D, compose
 from .media_pool import META_GROUP
-from .resolve_api import ResolveError, color_group
+from .resolve_api import ResolveError, color_group, find_timeline
 
 CST_TEMPLATE = TEMPLATE_DIR / "drx" / "CST_BASE.drx"
 CLIP_TEMPLATE = TEMPLATE_DIR / "drx" / "CLIP_STRUCTURE.drx"    # 01_EXPOSURE … 06_FINISH, built once in Resolve
@@ -77,9 +77,12 @@ class Baker:
 
     def __exit__(self, *exc):
         if self._timeline is not None:
-            previous = self.project.GetCurrentTimeline()
+            # by name: deleting a timeline can invalidate the other timeline objects (seen in Resolve 21)
+            current = self.project.GetCurrentTimeline()
+            name = current.GetName() if current is not None else ""
             self.project.GetMediaPool().DeleteTimelines([self._timeline])
-            if previous is not None and previous.GetName() != BAKE_TIMELINE:
+            previous = find_timeline(self.project, name) if name and name != BAKE_TIMELINE else None
+            if previous is not None:
                 self.project.SetCurrentTimeline(previous)
         return False
 

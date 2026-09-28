@@ -48,6 +48,7 @@ def test_evaluate_timeline_renders_both_versions_and_restores(tmp_path):
     rep = Reporter(run.STEPS)
     run.basic_correction(resolve, Config(), rep, base=tmp_path)
     items[0].LoadVersionByName("Version 1", 0)                       # the user looks at their own grade
+    tl = proj.GetCurrentTimeline()                                   # the analysis render invalidated the old one
     record = write.load_record(tmp_path, tl.GetName())
     from davigen.basic import sampling
     results = evaluate.evaluate_timeline(resolve, proj, tl, record,

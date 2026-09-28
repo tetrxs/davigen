@@ -71,6 +71,7 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
     if timeline is None:
         raise ResolveError(f"Timeline {timeline_name or '(current)'} not found")
     tl_fps = _number(timeline.GetSetting("timelineFrameRate")) or _number(proj.GetSetting("timelineFrameRate"))
+    timeline_name_now = timeline.GetName()
 
     # ----------------------------------------------------------------------------------------- sample
     rep.start("sample", timeline.GetName())
@@ -99,6 +100,9 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
         for path, frames in by_path.items():
             cache.save(path, frames)
             cached[path].update(frames)
+        # Resolve invalidates timeline and item objects when a timeline is deleted (seen in Resolve 21): fetch the
+        # timeline again by name and every item by its unique id
+        timeline = _refresh(proj, timeline_name_now, items)
     for it in usable:
         if it.luts[0] is None or it.luts[1] is None:
             continue
@@ -169,6 +173,20 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
 
 
 # -------------------------------------------------------------------------------------------- helpers
+
+def _refresh(proj, name: str, items: list) -> object:
+    """The timeline and its items as fresh API objects (after a scratch timeline was deleted)."""
+    timeline = find_timeline(proj, name)
+    if timeline is None:
+        raise ResolveError(f"Timeline {name} disappeared during the analysis")
+    fresh = {ti.GetUniqueId(): ti for ti in _video_items(timeline) if hasattr(ti, "GetUniqueId")}
+    for it in items:
+        ti = fresh.get(it.id)
+        if ti is not None:
+            it.ti = ti
+            it.mpi = ti.GetMediaPoolItem() or it.mpi
+    return timeline
+
 
 def _video_items(timeline) -> list:
     out = []

@@ -185,6 +185,13 @@ class TimelineItem:
 
 
 class Timeline:
+    stale = False
+
+    def __getattribute__(self, name):
+        if name.startswith("Get") and object.__getattribute__(self, "stale"):
+            return None
+        return object.__getattribute__(self, name)
+
     def __init__(self, name, items=None, fps=25.0):
         self.name, self.items, self.fps = name, list(items or []), fps
         self.settings = {"timelineResolutionWidth": "3240", "timelineResolutionHeight": "2160",
@@ -269,7 +276,18 @@ class MediaPool:
         return tl
 
     def DeleteTimelines(self, tls):
-        self.project.timelines = [t for t in self.project.timelines if t not in tls]
+        """Like Resolve 21: deleting a timeline invalidates the API objects of the other timelines (their methods
+        answer None); fresh objects must be fetched from the project again."""
+        keep = []
+        for t in self.project.timelines:
+            if t in tls:
+                continue
+            fresh = copy.copy(t)
+            t.stale = True
+            if self.project.current is t:
+                self.project.current = fresh
+            keep.append(fresh)
+        self.project.timelines = keep
         return True
 
     def AppendToTimeline(self, infos):
