@@ -46,3 +46,26 @@ node.
 ## Done when
 
 `correct(measurement, cfg) -> Correction` is deterministic and fully covered by the tests above.
+
+## Result (2026-09-28)
+
+Done: [`davigen/basic/correct.py`](../../../davigen/basic/correct.py), settings in `[basic_correction.exposure]`,
+`.white_balance`, `.contrast`, `.saturation` and `.confidence`. Tests in
+[`tests/test_basic_correct.py`](../../../tests/test_basic_correct.py). Entry point:
+`correct(measurement, samples, output_lut, settings) -> Correction`. What changed on the way:
+
+- **Offsets are solved, not multiplied.** A log offset is one stop only above the toe. `01` is solved so the frame's
+  key lands exactly on its target; `02` so that a neutral surface at the key, as `01` leaves it, lands exactly on
+  the target white. The −1 stop grey card gets +0.069 instead of 0.0733 and ends at 0.336.
+- **Duv target is D65's Duv (+0.0032), not 0.** Rec.709 white is D65, which sits slightly above the blackbody
+  locus; "Duv to 0" would tint every clip magenta.
+- **Skin and dominant hue are measured on a white-balanced image** (in `measure.py`): under tungsten light every
+  grey wall looked like skin.
+- **Clipped highlights:** darkening stops where the camera's clip level would fall below display white, and pixels
+  the camera clipped don't count for the contrast white point. If the white point is above `white_max` already,
+  contrast may take it up to `white_ceiling`.
+- `cct_strength` got a row for above 7500 K (60 %), because shade and blue hour are often intended too.
+- On the real spike clip (backlit, flare, +2.7 stops, 9 % clipped sky): −0.75 stop (held by the high-key rule),
+  6504 K, contrast 1.17, saturation 1.25, overall confidence 0 with six flags. A colorist would pull it down
+  further; whether the high-key rule is too careful is for the evaluation (step 09).
+- 0.6 s per clip for 6 samples, all four nodes.

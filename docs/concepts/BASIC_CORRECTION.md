@@ -89,8 +89,8 @@ In a log space this maps cleanly onto what a colorist does by hand:
 
 | Correction | CDL in DaVinci Intermediate | Why it is right |
 |---|---|---|
-| exposure by *s* stops | offset = 0.0733 · *s* on all channels | adding in log is multiplying in linear, like opening the iris |
-| white balance | offset per channel = 0.0733 · log2(gain) | a per-channel linear gain in DWG primaries |
+| exposure by *s* stops | offset ≈ 0.0733 · *s* on all channels, solved exactly at the frame's key | adding in log is multiplying in linear, like opening the iris |
+| white balance | offset per channel ≈ 0.0733 · log2(gain), solved exactly at the frame's key | a per-channel linear gain in DWG primaries |
 | contrast *c* around grey | slope = *c*, offset = 0.336 · (1 − *c*) | middle grey stays where it is |
 | saturation | sat | used as it is |
 | power | stays 1.0 | a gamma on log data has no clean meaning |
@@ -188,7 +188,7 @@ The illuminant is their per-channel median. Their angular spread feeds the confi
 
 - The estimate is converted to xy and split into correlated colour temperature (CCT) and **Duv**, the distance from
   the blackbody locus, with `colour.temperature` (Ohno 2013).
-- **Duv (green/magenta) is corrected fully.** A green or magenta cast is almost always an error, from light
+- **Duv (green/magenta) is corrected fully**, to the Duv of D65 (+0.0032), the white of Rec.709. A green or magenta cast is almost always an error, from light
   sources or AWB. Warm and cool, on the other hand, is often the point of the shot.
 - **CCT is corrected partially**, towards 6500 K:
 

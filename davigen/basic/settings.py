@@ -31,6 +31,20 @@ DEFAULTS: dict = {
         "clipped": 0.03, "wb_spread": 5.0, "achromatic_min": 0.01, "dominant": 0.5, "mixed_light": 4.0,
         "exposure_spread": 0.5, "cct_spread": 800, "night_ev": 5.0,
     },
+    "exposure": {
+        "max_stops": 1.5, "skin_ire": [60, 70], "skin_disagree": 1.0, "ev_full": 10.0, "ev_low": 5.0,
+        "ev_low_target": -1.0, "night_target": -1.5, "night_margin": 0.5, "high_key_max": 2.0, "low_key_min": -2.5,
+    },
+    "white_balance": {
+        "cct_strength": [[7500, 0.6], [5000, 1.0], [3500, 0.6], [0, 0.35]], "max_duv": 0.02, "neutral_cct": 6504,
+    },
+    "contrast": {"range": [0.85, 1.35], "black": [0.02, 0.04], "white_max": 0.95, "white_ceiling": 0.98, "haze_factor": 0.5},
+    "saturation": {"range": [0.85, 1.25], "chroma": [16, 28]},
+    "confidence": {
+        "clipped": 0.3, "changes": 0.3, "key": 0.3, "night": 0.2, "limit": 0.2, "skin_disagree": 0.2,
+        "wb_spread_per_degree": 0.08, "achromatic": 0.4, "dominant": 0.4, "mixed_light": 0.3, "haze": 0.3,
+    },
+    "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3},
 }
 
 

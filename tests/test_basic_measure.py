@@ -151,6 +151,8 @@ def test_skin_hue_and_record(out_lut):
     r = m.measure([di(frame)], m.ClipMeta(), out_lut, S)
     assert r.skin_fraction > 0.1
     assert 98 <= r.skin_hue <= 148
+    warm_grey = neutral_scene() * np.array([1.5, 0.95, 0.55])            # grey walls under tungsten are not skin
+    assert m.measure([di(warm_grey)], m.ClipMeta(), out_lut, S).skin_fraction < 0.02
     import json
     json.dumps(r.to_dict())                                # the record must be JSON
 

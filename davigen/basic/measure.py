@@ -90,6 +90,7 @@ class Measurement:
     exposure_stops: float
     exposure_spread: float
     clipped_fraction: float
+    clip_level: float | None            # DaVinci Intermediate value the camera clipped at (lowest channel)
     black_fraction: float
     skin_fraction: float
     skin_ire: float | None
@@ -127,7 +128,7 @@ def measure(samples: list, meta: ClipMeta, output_lut: str | Path, settings: dic
     ms, fl = settings["measure"], settings["flags"]
     frames = [np.asarray(s, dtype="float64")[..., :3] for s in samples]
     clip_level = _clip_level(frames, ms)
-    per = [_sample(f, p.apply_lut(f, output_lut), clip_level, ms) for f in frames]
+    per = [_sample(f, output_lut, clip_level, ms) for f in frames]
 
     def med(name):
         return float(np.median([getattr(s, name) for s in per]))
@@ -144,7 +145,9 @@ def measure(samples: list, meta: ClipMeta, output_lut: str | Path, settings: dic
         samples=len(per), ev100=meta.ev100(),
         exposure_stops=med("exposure_stops"),
         exposure_spread=float(np.ptp([s.exposure_stops for s in per])),
-        clipped_fraction=med("clipped_fraction"), black_fraction=med("black_fraction"),
+        clipped_fraction=med("clipped_fraction"),
+        clip_level=None if clip_level is None else float(clip_level[np.isfinite(clip_level)].min()),
+        black_fraction=med("black_fraction"),
         skin_fraction=med("skin_fraction"), skin_ire=med_opt("skin_ire"), skin_stops=med_opt("skin_stops"),
         skin_hue=med_opt("skin_hue"),
         high_key=sum(s.high_key for s in per) * 2 > len(per), low_key=sum(s.low_key for s in per) * 2 > len(per),
@@ -205,8 +208,9 @@ def _clip_level(frames: list, ms: dict) -> np.ndarray | None:
     return None if np.isinf(level).all() else level
 
 
-def _sample(di: np.ndarray, display: np.ndarray, clip_level, ms: dict) -> Sample:
+def _sample(di: np.ndarray, output_lut, clip_level, ms: dict) -> Sample:
     h, w = di.shape[:2]
+    display = p.apply_lut(di, output_lut)
     lin = p.to_linear(di)
     lum = np.maximum(p.dwg_luminance(lin), 1e-6)
     clipped = (np.zeros((h, w), bool) if clip_level is None
@@ -231,17 +235,26 @@ def _sample(di: np.ndarray, display: np.ndarray, clip_level, ms: dict) -> Sample
     key = math.exp(float((weight * np.log(lum))[valid].sum() / weight[valid].sum()))
     s.exposure_stops = math.log2(key / GREY_LINEAR)
 
-    # skin, on the display image like a vectorscope
-    y, cb, cr = p.ycbcr(display)
+    # white balance on the midtones around the frame's key
+    mid = valid & (np.abs(np.log2(lum / key)) < ms["midtone_stops"])
+    if mid.sum() < 16:
+        mid = valid
+    _white_balance(s, lin, mid, valid, ms["white_balance"])
+
+    # skin and dominant hue on a white-balanced display image, like a vectorscope after a quick balance:
+    # under warm light every grey wall would otherwise look like skin
+    balanced = p.apply_lut(p.to_log(lin / np.asarray(s.illuminant)), output_lut)
+    y, cb, cr = p.ycbcr(balanced)
     hue, chroma = p.vectorscope_hue(cb, cr), np.hypot(cb, cr)
     sk = ms["skin"]
     skin = (valid & _hue_in(hue, *sk["hue"]) & (chroma >= sk["chroma"][0]) & (chroma <= sk["chroma"][1])
             & (y >= sk["luma"][0]) & (y <= sk["luma"][1]))
     s.skin_fraction = float(skin.mean())
     if s.skin_fraction >= sk["min_fraction"]:
-        s.skin_ire = float(p.ire(np.median(y[skin])))
+        s.skin_ire = float(p.ire(np.median(p.luminance(display)[skin])))     # as it looks now
         s.skin_stops = math.log2(float(np.median(lum[skin])) / GREY_LINEAR)
         s.skin_hue = _circular_mean(hue[skin])
+    s.dominant_fraction = _dominant(hue, chroma, valid, ms["dominant_hue"])
 
     # high key / low key
     lab = p.display_to_lab(display)
@@ -250,14 +263,8 @@ def _sample(di: np.ndarray, display: np.ndarray, clip_level, ms: dict) -> Sample
     hk = ms["high_key"]
     s.high_key = bool(s.exposure_stops > hk["min_stops"] and shadows.mean() < hk["max_shadow_fraction"]
                       and float(c_star[valid].mean()) < hk["max_chroma"])
-
-    # white balance on the midtones around the frame's key
-    mid = valid & (np.abs(np.log2(lum / key)) < ms["midtone_stops"])
-    if mid.sum() < 16:
-        mid = valid
-    _white_balance(s, lin, mid, valid, ms["white_balance"])
-    s.dominant_fraction = _dominant(hue, chroma, valid, ms["dominant_hue"])
     _contrast(s, di, display, lum, valid)
+    y = p.luminance(display)
     usable = valid & (y > 0.1) & (y < 0.9)
     s.chroma = float(c_star[usable].mean()) if usable.any() else 0.0
     return s

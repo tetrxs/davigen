@@ -212,3 +212,54 @@ mixed_light = 4.0                   # "mixed light": halves of the frame disagre
 exposure_spread = 0.5               # "changes within clip", in stops …
 cct_spread = 800                    # … or in kelvin
 night_ev = 5.0                      # EV100 below this is night
+
+# Corrections per node (plan step 05). Stops relative to 18 % grey, display values 0–1.
+[basic_correction.exposure]
+max_stops = 1.5                     # never more than this, either way ("limit reached")
+skin_ire = [60, 70]                 # skin after the output LUT, when at least skin.min_fraction of the frame is skin
+skin_disagree = 1.0                 # skin and frame key disagree by more than this: lower confidence
+ev_full = 10.0                      # EV100 at or above: daylight, key goes to grey
+ev_low = 5.0                        # EV100 at ev_low: key goes to ev_low_target; below: night
+ev_low_target = -1.0
+night_target = -1.5                 # night is only brightened when it sits more than night_margin below this
+night_margin = 0.5
+high_key_max = 2.0                  # a high-key frame may stay this bright
+low_key_min = -2.5                  # a low-key frame may stay this dark
+
+[basic_correction.white_balance]
+# [from kelvin, strength]: the first row whose kelvin the measured CCT reaches. Warm and cool light is often the
+# point of a shot, so it is only partly neutralised; green/magenta (Duv) is always corrected fully.
+cct_strength = [[7500, 0.6], [5000, 1.0], [3500, 0.6], [0, 0.35]]
+max_duv = 0.02                      # larger green/magenta casts are corrected this far and flagged
+neutral_cct = 6504                  # D65, the white of Rec.709
+
+[basic_correction.contrast]
+range = [0.85, 1.35]
+black = [0.02, 0.04]                # 0.5th percentile of display luma
+white_max = 0.95                    # 99.5th percentile of the pixels the camera didn't clip …
+white_ceiling = 0.98                # … or up to this, if they were above white_max already
+haze_factor = 0.5                   # flat, hazy scenes get only this share of the change
+
+[basic_correction.saturation]
+range = [0.85, 1.25]
+chroma = [16, 28]                   # target mean CIELAB C* of the display image
+
+[basic_correction.confidence]
+# what each finding takes off a node's confidence (1 = sure)
+clipped = 0.3
+changes = 0.3
+key = 0.3
+night = 0.2
+limit = 0.2
+skin_disagree = 0.2
+wb_spread_per_degree = 0.08
+achromatic = 0.4
+dominant = 0.4
+mixed_light = 0.3
+haze = 0.3
+
+[basic_correction.scenes]
+gap_minutes = 10                    # a longer pause between recordings starts a new scene
+split_ev = 3.0                      # … so does a jump in EV100 …
+split_cct = 1500                    # … or in illuminant CCT between neighbours with good white balance
+pull_to_scene = 0.3                 # confident clips move this far towards the scene's reference
