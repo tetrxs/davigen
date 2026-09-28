@@ -58,6 +58,12 @@ def extra_frames(frames: list[int], samples: list[dict], settings: dict) -> list
     dy = settings["dynamic"]
     if not dy["enabled"] or len(frames) < 2:
         return []
+    # only a clip that can get keyframes is worth more frames (a steady hand-held shot wobbles a stop anyway)
+    use = [s for s in samples if s.get("usable", True)]
+    keys = _median3(np.array([s["exposure_stops"] for s in use])) if use else np.zeros(1)
+    mireds = _median3(np.array([_mired(s["cct"]) for s in use])) if use else np.zeros(1)
+    if np.ptp(keys) < dy["min_change_stops"] and np.ptp(mireds) < dy["min_change_mired"]:
+        return []
     have = set(frames)
     out: set[int] = set()
     for (fa, sa), (fb, sb) in zip(zip(frames, samples), zip(frames[1:], samples[1:])):
