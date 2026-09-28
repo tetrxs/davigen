@@ -1,5 +1,5 @@
 # local runtime (downloaded by install.sh)
-/runtime/
+/runtime
 .venv/
 
 # per-Mac state: settings, project list, camera catalog, downloaded/baked LUTs, transfer journals

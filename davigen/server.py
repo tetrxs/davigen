@@ -20,6 +20,7 @@ from . import __version__, catalog, creator, filesystem, formats, naming, provid
 from .config import DATA_DIR, Camera, Config, save_settings, settings
 from .formats import Format
 from .project import PM_FOLDER
+from .basic import settings as basic_settings
 from .lut import Lut3D
 from .resolve_api import capabilities, find_project, version
 
@@ -27,7 +28,7 @@ UI_DIR = Path(__file__).resolve().parent / "ui"
 # Resolve's scripting API isn't thread-safe: requests that talk to Resolve run one at a time.
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
 RESOLVE_ROUTES = {"/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
-                  "/api/preview", "/api/scan"}
+                  "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto"}
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
 
 
@@ -64,6 +65,7 @@ class App:
                                 "resolution": d["resolution"]} for d in cfg.workflow["deliver"]],
             },
             "transfer": cfg.workflow["project"]["transfer"],
+            "basic_default": basic_settings.load(cfg.workflow)["wizard_default"],
             "default_root": user.get("default_root") or cfg.workflow["project"]["default_root"],
             "profiles": [{"id": p.id, "label": p.label} for p in cfg.profiles.values()],
             "shorts": {p.id: p.short for p in cfg.profiles.values()},
@@ -156,6 +158,27 @@ class App:
     def start_queue(self, body: dict) -> dict:
         return self._start(creator.QUEUE_STEPS, creator.queue_renders)
 
+    def start_basic(self, body: dict) -> dict:
+        from .basic import run as basic  # noqa: PLC0415 - numpy is only needed once Basic Correction runs
+        options = {"dry_run": bool(body.get("dry_run")), "recompute": bool(body.get("recompute")),
+                   "timeline": body.get("timeline", "")}
+        return self._start(basic.STEPS, basic.flow, options)
+
+    def basic_report(self, q: dict) -> dict:
+        """The last Basic Correction record of the current timeline, as report rows."""
+        from .basic import run as basic, write  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        timeline = proj.GetCurrentTimeline() if proj else None
+        if timeline is None:
+            return {"timeline": "", "rows": []}
+        record = write.load_record(creator.project_base(proj), timeline.GetName())
+        return {"timeline": timeline.GetName(), "date": record.get("date", ""), "dry_run": record.get("dry_run"),
+                "rows": basic.rows(record)}
+
+    def basic_goto(self, body: dict) -> dict:
+        from .basic import run as basic  # noqa: PLC0415
+        return {"ok": basic.goto(self.resolve, body.get("id", ""), body.get("timeline", ""))}
+
     def progress(self) -> dict:
         return self.reporter.snapshot() if self.reporter else {"steps": [], "done": False}
 
@@ -186,7 +209,8 @@ class App:
             else self.cfg.workflow["project"]["transfer"]
         return creator.Plan(project=naming.normalize(body.get("project", "")),
                             root=body.get("root") or self.cfg.workflow["project"]["default_root"],
-                            groups=list(groups.values()), fmt=self._format(body), transfer=mode)
+                            groups=list(groups.values()), fmt=self._format(body), transfer=mode,
+                            basic_correction=bool(body.get("basic_correction")))
 
     # ------------------------------------------------------------------ open project
     def current(self) -> dict:
@@ -333,6 +357,7 @@ def make_handler(app: App):
         "/api/source": app.source,
         "/api/catalog": app.catalog_search,
         "/api/catalog/status": lambda q: app.catalog_info(),
+        "/api/basic/report": app.basic_report,
     }
     routes_post = {
         "/api/validate": app.validate,
@@ -344,6 +369,8 @@ def make_handler(app: App):
         "/api/color": app.start_color,
         "/api/assign": app.start_assign,
         "/api/queue": app.start_queue,
+        "/api/basic": app.start_basic,
+        "/api/basic/goto": app.basic_goto,
         "/api/open-project": app.open_project,
         "/api/reveal": app.reveal,
         "/api/vendor-lut": app.vendor_lut,
@@ -426,13 +453,14 @@ class _LocalServer(ThreadingHTTPServer):
         self.server_name, self.server_port = self.server_address[:2]
 
 
-def serve(resolve, cfg: Config | None = None, open_browser: bool = True) -> None:
+def serve(resolve, cfg: Config | None = None, open_browser: bool = True, start: str = "") -> None:
+    """start: a view to open right away ("basic" starts Basic Correction on the current timeline)."""
     app = App(resolve, cfg or Config())
     app.recovery = transfer.recover_pending()        # undo transfers a crash left unfinished
     httpd = _LocalServer(("127.0.0.1", 0), make_handler(app))
     port = httpd.server_address[1]
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{port}/?token={app.token}"
+    url = f"http://127.0.0.1:{port}/?token={app.token}" + (f"#{start}" if start else "")
     DATA_DIR.mkdir(exist_ok=True)
     (DATA_DIR / "last_session.txt").write_text(url + "\n", encoding="utf-8")
     if open_browser:

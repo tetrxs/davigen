@@ -186,6 +186,7 @@ default = false
 # the values are first guesses until the evaluation (plan step 09) tunes them on hand-graded clips.
 # Stops are relative to 18 % grey, fractions are of the frame, angles in degrees.
 [basic_correction]
+wizard_default = true              # the New project wizard's 'Basic correction' checkbox starts ticked
 samples = { min = 5, per_seconds = 4, max = 12 }
 analysis_width = 480
 confidence_flag_below = 0.6

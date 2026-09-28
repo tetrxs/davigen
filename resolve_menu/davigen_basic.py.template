@@ -1,0 +1,14 @@
+# davigen Basic Correction – measures the current timeline and fills nodes 01–04 in DAVIGEN_AUTO
+# (launcher for Resolve's Workspace → Scripts menu, written by install.sh)
+import sys
+
+DAVIGEN = "@DAVIGEN_ROOT@"
+if DAVIGEN not in sys.path:
+    sys.path.insert(0, DAVIGEN)
+# always load the current code, even if Resolve kept the interpreter alive
+for _m in [m for m in list(sys.modules) if m == "davigen" or m.startswith("davigen.")]:
+    del sys.modules[_m]
+
+from davigen.app import main  # noqa: E402
+
+main(resolve, start="basic")  # noqa: F821 - injected by Resolve

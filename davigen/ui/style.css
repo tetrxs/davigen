@@ -225,3 +225,19 @@ table.groups td:last-child { text-align: right; }
   .env span:first-child { display: none; }
   .steps span { padding: 4px 7px; }
 }
+
+/* basic correction */
+.basic { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.basic-text { flex: 1 1 320px; }
+.basic-text small { display: block; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.dot.warn { background: #d9a400; }
+.report { margin-top: 20px; }
+.report-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+.report-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 8px 6px 0; }
+.report-table td { padding: 7px 8px 7px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.report-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.report-table td.flags { color: var(--muted); }
+.report-table tbody tr { cursor: pointer; }
+.report-table tbody tr:hover td { background: var(--hover, rgba(127, 127, 127, 0.08)); }

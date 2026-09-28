@@ -29,6 +29,7 @@ NEW_PROJECT_STEPS = [
     ("timelines", "Timelines + tracks"),
     ("color", "Color groups + LUTs"),
     ("assign", "Groups + node structure"),
+    ("basic", "Basic correction"),
     ("deliver", "Render presets"),
     ("save", "Save"),
 ]
@@ -43,7 +44,7 @@ ADD_FOOTAGE_STEPS = [
     ("save", "Save"),
 ]
 COLOR_STEPS = [("color", "Rebuild color groups + LUTs"), ("assign", "Groups + node structure"), ("save", "Save")]
-ASSIGN_STEPS = [("assign", "Groups + node structure on all timelines"), ("save", "Save")]
+ASSIGN_STEPS = [("assign", "Groups + node structure on all timelines"), ("basic", "Basic correction"), ("save", "Save")]
 QUEUE_STEPS = [("deliver", "Add render jobs")]
 
 TRANSFER_LABEL = {transfer.MOVE: "moved", transfer.COPY: "copied", transfer.LEAVE: "left in place"}
@@ -72,6 +73,7 @@ class Plan:
     groups: list[GroupPlan]
     fmt: Format | None = None
     transfer: str = transfer.MOVE
+    basic_correction: bool = False
 
 
 class Reporter:
@@ -252,20 +254,66 @@ def _color(resolve, proj, cfg: Config, specs: list[dict], scratch, rep: Reporter
     rep.finish("color", ", ".join(groups))
 
 
-def _assign(proj, rep: Reporter, timelines_to_check: list) -> None:
-    """Colour group per clip + the standard node structure on clips that have no grade yet."""
+def _assign(proj, rep: Reporter, timelines_to_check: list) -> list:
+    """Colour group per clip + the standard node structure on clips that have no grade yet.
+
+    Returns the timelines where clips got the node structure (Basic Correction follows up on those)."""
     rep.start("assign")
     total_ok = total_skip = structured = 0
+    touched = []
     for tl in timelines_to_check:
         ok, skip = color.assign(proj, tl)
         total_ok, total_skip = total_ok + ok, total_skip + skip
-        structured += color.apply_clip_structure(tl)[0]
+        applied = color.apply_clip_structure(tl)[0]
+        structured += applied
+        if applied:
+            touched.append(tl)
     if not total_ok and not total_skip:
         rep.finish("assign", "no clips on the timelines", state="skipped")
     else:
         rep.finish("assign", f"{total_ok} clips in their groups"
                    + (f", {total_skip} without a davigen group" if total_skip else "")
                    + (f", {structured} got the node structure" if structured else ""))
+    return touched
+
+
+class _StepReporter:
+    """Lets a sub-flow (Basic Correction) report into one step of the running flow."""
+
+    def __init__(self, rep: Reporter, sid: str, labels: dict[str, str]):
+        self.rep, self.sid, self.labels = rep, sid, labels
+        self.result: dict = {}
+
+    def start(self, sub: str, detail: str = ""):
+        self.rep.detail(self.sid, f"{self.labels.get(sub, sub)}{' · ' + detail if detail else ''}")
+
+    detail = start
+
+    def finish(self, sub: str, detail: str = "", state: str = "done"):
+        self.start(sub, detail)
+
+    def warn(self, items: list[str]):
+        self.rep.warn(items)
+
+
+def _basic(resolve, cfg: Config, rep: Reporter, timelines_to_correct: list, base: Path, enabled: bool) -> None:
+    """Basic Correction on the given timelines, if the project has it switched on."""
+    if not enabled or not timelines_to_correct:
+        rep.finish("basic", "switched off for this project" if not enabled else "no new clips", state="skipped")
+        return
+    from .basic import run as basic  # noqa: PLC0415 - needs numpy, only loaded when used
+    rep.start("basic")
+    sub = _StepReporter(rep, "basic", dict(basic.STEPS))
+    written = 0
+    for tl in timelines_to_correct:
+        record = basic.basic_correction(resolve, cfg, sub, timeline_name=tl.GetName(), base=base)
+        written += sum(1 for e in record["items"] if e["outcome"].get("written"))
+    rep.finish("basic", f"{written} clips got a {'DAVIGEN_AUTO'} version – Color page → right-click a clip → "
+               "Local Versions to compare")
+
+
+def basic_enabled(base: Path) -> bool:
+    return bool(filesystem.read_project_info(base).get("basic_correction"))
 
 
 def _save(resolve, rep: Reporter, detail: str = "", timeline=None) -> None:
@@ -354,7 +402,12 @@ def new_project(resolve, cfg: Config, plan: Plan, rep: Reporter) -> None:
 
     _color(resolve, proj, cfg, _specs(cfg, plan.groups), items[0] if items else None, rep)
     assembly = _assembly(proj, cfg, fmt)
-    _assign(proj, rep, [assembly] if assembly else [])
+    touched = _assign(proj, rep, [assembly] if assembly else [])
+    try:
+        _basic(resolve, cfg, rep, touched, base, plan.basic_correction)
+    except Exception as e:  # noqa: BLE001 - the project itself is fine; Basic Correction can run again later
+        rep.finish("basic", f"stopped: {e}", state="error")
+        rep.warn([f"Basic correction stopped: {e}. The project is complete – run it again from the home screen."])
 
     rep.start("deliver")
     rep.warn(deliver.ensure_presets(proj, cfg, fmt, studio))
@@ -362,7 +415,7 @@ def new_project(resolve, cfg: Config, plan: Plan, rep: Reporter) -> None:
 
     filesystem.write_project_info(base, {
         "project": plan.project, "resolve": resolve.GetVersionString(), "studio": studio, "format": fmt.as_dict(),
-        "transfer": plan.transfer,
+        "transfer": plan.transfer, "basic_correction": plan.basic_correction,
         "groups": [{"group": g.group_name(cfg), "camera": g.camera_name, "profile": g.profile,
                     "clips": len(g.clips)} for g in plan.groups],
     })
@@ -428,7 +481,12 @@ def refresh_color(resolve, cfg: Config, rep: Reporter) -> None:
 
 def assign_all(resolve, cfg: Config, rep: Reporter) -> None:
     proj = resolve.GetProjectManager().GetCurrentProject()
-    _assign(proj, rep, _all_timelines(proj))
+    touched = _assign(proj, rep, _all_timelines(proj))
+    try:
+        base = project_base(proj)
+    except ResolveError:
+        base = None
+    _basic(resolve, cfg, rep, touched, base, bool(base and basic_enabled(base)))
     _save(resolve, rep, proj.GetName())
 
 

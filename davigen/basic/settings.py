@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 
 DEFAULTS: dict = {
+    "wizard_default": True,
     "samples": {"min": 5, "per_seconds": 4, "max": 12},
     "analysis_width": 480,
     "confidence_flag_below": 0.6,

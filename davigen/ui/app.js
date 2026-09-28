@@ -178,8 +178,27 @@ function renderCurrent(c) {
       <button class="secondary" data-flow="assign" title="Put every clip in its camera group and give new clips the node structure">Assign groups &amp; nodes</button>
       <button class="secondary" data-flow="color" title="Rebuild input/output transforms of all groups">Refresh color</button>
       <button class="secondary" data-flow="queue" title="Add all deliveries to the render queue">Queue renders</button>
+    </div>
+    <div class="basic">
+      <div class="basic-text"><b>Basic correction</b>
+        <small>Measures every clip on the current timeline and fills the nodes 01–04 (exposure, white balance,
+        contrast, saturation) in a new grade version <span class="mono">DAVIGEN_AUTO</span>. Your own grade stays
+        as it is – switch versions on the Color page for a before/after. Unsure clips get a marker.</small></div>
+      <div class="row gap wrap">
+        <label class="check"><input type="checkbox" id="b-dry"> Dry run</label>
+        <label class="check" title="Overwrite existing DAVIGEN_AUTO versions (changes made inside them are lost)"><input type="checkbox" id="b-re"> Recompute all</label>
+        <button class="primary" id="m-basic">Basic correction</button>
+        <button class="link" id="m-basic-report">Last report</button>
+      </div>
     </div>`;
 }
+
+function startBasic(options = {}) {
+  if (options.recompute && !confirm("Recompute all: existing DAVIGEN_AUTO versions are overwritten, including anything you changed inside them. Continue?")) return;
+  basicRun = true;
+  runFlow("/api/basic", options.dry_run ? "Basic correction · dry run" : "Basic correction", options);
+}
+let basicRun = false;
 
 const MAINTENANCE = {
   assign: ["/api/assign", "Assigning groups"],
@@ -189,6 +208,8 @@ const MAINTENANCE = {
 $("#current").addEventListener("click", async (e) => {
   const flow = e.target.closest("[data-flow]");
   if (flow) return runFlow(...MAINTENANCE[flow.dataset.flow]);
+  if (e.target.closest("#m-basic")) return startBasic({ dry_run: $("#b-dry").checked, recompute: $("#b-re").checked });
+  if (e.target.closest("#m-basic-report")) return showBasicReport();
   if (e.target.closest("#m-add")) {
     state.mode = "add";
     reset();
@@ -701,7 +722,13 @@ async function renderReview() {
       ${adding ? '<p class="muted">New clips go into the camera bins and to the end of the assembly timeline.</p>' : ""}</div>
     <div class="block"><h3>Color groups</h3>${allGroups.length ? `<ul class="mono">${allGroups.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>` : "<p>None</p>"}
       <p class="muted">Pre-clip: camera log → DaVinci Wide Gamut / Intermediate · Post-clip: → Rec.709 Gamma 2.4</p></div>
-    ${formatBlock}`;
+    ${formatBlock}
+    ${adding ? "" : `<div class="block"><h3>Basic correction</h3>
+      <label class="check"><input type="checkbox" id="basic-on" ${state.basic ? "checked" : ""}>
+        Measure every clip and fill the nodes 01–04 (exposure, white balance, contrast, saturation) in a grade version
+        DAVIGEN_AUTO – your first pass, ready on the Color page</label></div>`}`;
+  const cb = $("#basic-on");
+  if (cb) cb.addEventListener("change", () => (state.basic = cb.checked));
 }
 $("#create").addEventListener("click", () => {
   const body = {
@@ -711,6 +738,7 @@ $("#create").addEventListener("click", () => {
     groups: (state.scan ? state.scan.groups : []).map((g) => ({ id: g.id, ...state.choices[g.id] })),
     extra: state.extra,
     format: state.format ? formatBody(state.format) : undefined,
+    basic_correction: state.mode === "new" && !!state.basic,
   };
   if (state.mode === "add") runFlow("/api/add", `Adding footage to ${state.current.name}`, body);
   else runFlow("/api/create", `Creating ${body.project}`, body);
@@ -749,6 +777,51 @@ async function pollProgress() {
     ? `<div class="notice"><h3>Notes</h3><ul>${p.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : "";
   $("#manual").innerHTML = p.manual.length
     ? `<div class="notice manual"><h3>Left to do in Resolve</h3><ul>${p.manual.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : "";
+  $("#report").innerHTML = basicRun && p.result && p.result.rows ? reportTable(p.result.rows, p.result.timeline) : "";
+  basicRun = false;
+}
+
+// ------------------------------------------------------------ basic correction
+const num = (v, d = 2) => (v === null || v === undefined ? "–" : Number(v).toFixed(d));
+function reportTable(rows, timeline) {
+  if (!rows.length) return '<p class="muted">No clips were measured on this timeline.</p>';
+  const body = rows.map((r) => {
+    const conf = r.confidence === null || r.confidence === undefined ? null : Number(r.confidence);
+    const cls = r.skipped && !r.written ? "bad" : conf !== null && conf < 0.6 ? "warn" : "ok";
+    const stops = r.stops === null || r.stops === undefined ? "–" : `${r.stops >= 0 ? "+" : ""}${num(r.stops)}`;
+    const cct = r.cct_before ? `${Math.round(r.cct_before)} → ${Math.round(r.cct_after)} K` : "–";
+    const notes = [...(r.flags || []), r.skipped && !r.written ? r.skipped : ""].filter(Boolean);
+    return `<tr data-goto="${esc(r.id)}" title="Show this clip on the Color page">
+      <td><span class="dot ${cls}"></span>${esc(r.name)}${r.hero ? ' <span class="tag">hero</span>' : ""}</td>
+      <td class="num">${r.scene === null || r.scene === undefined ? "–" : r.scene + 1}</td>
+      <td class="num">${conf === null ? "–" : num(conf)}</td>
+      <td class="num">${stops}</td><td class="num">${cct}</td>
+      <td class="num">${num(r.contrast)}</td><td class="num">${num(r.saturation)}</td>
+      <td class="flags">${notes.map(esc).join(", ")}</td></tr>`;
+  }).join("");
+  return `<div class="report"><h3>Report · ${esc(timeline || "")}</h3>
+    <p class="muted">Click a row to see the clip on the Color page. Stops, white balance and contrast are what went into
+    DAVIGEN_AUTO; flagged clips also have a marker in Resolve.</p>
+    <table class="report-table"><thead><tr><th>Clip</th><th>Scene</th><th>Confidence</th><th>Exposure</th>
+    <th>White balance</th><th>Contrast</th><th>Sat</th><th>Notes</th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+document.addEventListener("click", async (e) => {
+  const row = e.target.closest("[data-goto]");
+  if (!row) return;
+  const r = await api("/api/basic/goto", { id: row.dataset.goto });
+  if (!r.ok) notify("That clip isn't on the current timeline anymore.");
+});
+async function showBasicReport() {
+  const r = await api("/api/basic/report");
+  $("#run-title").textContent = "Basic correction";
+  $("#progress").innerHTML = "";
+  $("#error").hidden = true;
+  $("#warnings").innerHTML = $("#manual").innerHTML = "";
+  $("#report").innerHTML = r.rows.length
+    ? `<p class="muted">Last run ${esc((r.date || "").replace("T", " "))}${r.dry_run ? " · dry run" : ""}</p>` + reportTable(r.rows, r.timeline)
+    : `<p class="muted">No Basic correction has run on ${esc(r.timeline || "this timeline")} yet.</p>`;
+  $("#after").hidden = false;
+  show("run");
 }
 function showError(msg) {
   $("#error").hidden = false;
@@ -790,7 +863,12 @@ $("#retry").addEventListener("click", heartbeat);
   $("#root").value = i.default_root.replace(/^~/, i.home || "~");
   $("#version-note").textContent = i.version || "";
   state.transfer = i.transfer;
+  state.basic = !!i.basic_default;
   reset();
   if (i.catalog.needs_refresh && i.settings.online_sources) refreshCatalog();   // yearly, in the background
+  if (location.hash === "#basic") {           // started from 'davigen Basic Correction' in Resolve's menu
+    history.replaceState(null, "", location.pathname + location.search);
+    return startBasic({});
+  }
   show("home");
 })();
