@@ -16,6 +16,7 @@ import json
 import subprocess
 import sys
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -70,6 +71,7 @@ def main() -> None:
     ap.add_argument("folders", nargs="+")
     ap.add_argument("--out", default=str(Path.home() / "Movies" / "davigen_dev" / "offline"))
     ap.add_argument("--limit", type=int, default=0, help="only the first N clips")
+    ap.add_argument("--jobs", type=int, default=4, help="frames decoded in parallel")
     args = ap.parse_args()
     out = Path(args.out).expanduser()
     out.mkdir(parents=True, exist_ok=True)
@@ -93,7 +95,9 @@ def main() -> None:
         total, fps = clip_frames(ci.path)
         frames = sampling.choose_frames(0, total, fps, s["samples"])
         have = cache.load(ci.path)
-        new = {f: sampling.thumbnail(decode(ci.path, f, fps)) for f in frames if f not in have}
+        missing = [f for f in frames if f not in have]
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:      # ffmpeg decodes in its own processes
+            new = dict(zip(missing, pool.map(lambda f: sampling.thumbnail(decode(ci.path, f, fps)), missing)))
         cache.save(ci.path, new)
         have.update(new)
         thumbs = [p.apply_lut(sampling.to_float(have[f]), in_lut) for f in frames]

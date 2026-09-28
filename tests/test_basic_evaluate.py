@@ -49,10 +49,14 @@ def test_evaluate_timeline_renders_both_versions_and_restores(tmp_path):
     run.basic_correction(resolve, Config(), rep, base=tmp_path)
     items[0].LoadVersionByName("Version 1", 0)                       # the user looks at their own grade
     record = write.load_record(tmp_path, tl.GetName())
-    results = evaluate.evaluate_timeline(resolve, proj, tl, record)
+    from davigen.basic import sampling
+    results = evaluate.evaluate_timeline(resolve, proj, tl, record,
+                                         cache=sampling.Cache(tmp_path / "03_WORK" / "ANALYSIS"))
     assert {r["clip"] for r in results} == {"A.MOV", "B.MOV"}
     a = next(r for r in results if r["clip"] == "A.MOV")
     assert a["score"]["exposure"] > 0.3                              # A was brightened in DAVIGEN_AUTO
     assert items[0].current == "Version 1" and items[1].current == write.AUTO     # active versions restored
     assert items[0].versions["Version 1"]["cdl"] == {}               # nothing written into the user's grade
     assert proj.jobs == []                                           # render jobs removed
+    # the fake renders exactly what the simulator computes, so only resampling differences remain
+    assert all(r["simulator_error"] is not None and r["simulator_error"] < 0.02 for r in results)

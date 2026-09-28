@@ -82,6 +82,9 @@ def summarise(results: list[dict]) -> dict:
         "big_misses": int(big.sum()),
         "big_misses_flagged": float(flagged[big].mean()) if big.any() else None,       # recall
         "flags_on_big_misses": float(big[flagged].mean()) if flagged.any() else None,  # precision
+        "simulator_error": (float(np.median([r["simulator_error"] for r in results
+                                             if r.get("simulator_error") is not None]))
+                            if any(r.get("simulator_error") is not None for r in results) else None),
         "worst": sorted(({"clip": r["clip"], "delta_e": r["score"]["delta_e"], "flagged": r["flagged"],
                           "category": r.get("category", "")} for r in results),
                         key=lambda r: -r["delta_e"])[:10],
@@ -119,6 +122,8 @@ def report_markdown(summary: dict, title: str) -> str:
         + (f"{recall:.0%} of {summary['big_misses']}" if recall is not None else "no big misses")
         + f" | ≥ {t['big_misses_flagged_at_least']:.0%} | "
         + (check(recall >= t['big_misses_flagged_at_least']) if recall is not None else "✅") + " |",
+        "", (f"Simulator vs Resolve's render of DAVIGEN_AUTO: {summary['simulator_error']:.2%} mean difference "
+             "(should stay under 1 %)." if summary.get("simulator_error") is not None else ""),
         "", "## Worst clips", "", "| Clip | Category | ΔE2000 | Flagged |", "|---|---|---|---|",
     ]
     lines += [f"| {w['clip']} | {w['category']} | {w['delta_e']:.1f} | {'yes' if w['flagged'] else 'no'} |"
@@ -196,8 +201,13 @@ def render_versions(resolve, project, timeline, picks: list[tuple], width: int, 
 
 
 def evaluate_timeline(resolve, project, timeline, record: dict, width: int = 480, user_version: str = "",
-                      progress=None, restore_preset: str = "") -> list[dict]:
-    """Score every written item of a Basic Correction record: its user version vs DAVIGEN_AUTO."""
+                      progress=None, restore_preset: str = "", cache: sampling.Cache | None = None) -> list[dict]:
+    """Score every written item of a Basic Correction record: its user version vs DAVIGEN_AUTO.
+
+    With the analysis cache, each result also says how far Resolve's DAVIGEN_AUTO render is from what the
+    simulator predicts for the same frame (`simulator_error`, mean absolute display difference): the check that
+    pipeline.py reproduces Resolve (plan step 03).
+    """
     by_id = {}
     for idx in range(1, timeline.GetTrackCount("video") + 1):
         for item in timeline.GetItemListInTrack("video", idx) or []:
@@ -234,6 +244,28 @@ def evaluate_timeline(resolve, project, timeline, record: dict, width: int = 480
         results.append({"clip": entry["name"], "id": key, "frame": frame,
                         "flagged": bool(entry.get("outcome", {}).get("marker")),
                         "confidence": corr.get("overall"), "flags": corr.get("flags", []),
-                        "score": asdict(score(sampling.to_float(ref), sampling.to_float(test)))})
+                        "score": asdict(score(sampling.to_float(ref), sampling.to_float(test))),
+                        "simulator_error": _simulator_error(entry, test, cache)})
     return results
+
+
+def _simulator_error(entry: dict, rendered, cache) -> float | None:
+    """Mean absolute difference between Resolve's DAVIGEN_AUTO render and the simulation of the same frame.
+
+    Only meaningful while nodes 05/06 of DAVIGEN_AUTO are empty (they are copied from the user's version)."""
+    luts = entry.get("luts") or []
+    frames = entry.get("frames") or []
+    nodes = ((entry.get("correction") or {}).get("nodes")) or {}
+    if cache is None or len(luts) != 2 or not all(luts) or not frames or not nodes:
+        return None
+    thumb = cache.load(entry["path"]).get(frames[len(frames) // 2])
+    if thumb is None:
+        return None
+    from .correct import NODES  # noqa: PLC0415
+    chain = [p.Cdl(tuple(n["slope"]), tuple(n["offset"]), tuple(n["power"]), n["sat"])
+             for n in (nodes[label] for label in NODES if label in nodes)]
+    simulated = p.apply_lut(p.apply_nodes(p.apply_lut(sampling.to_float(thumb), luts[0]), chain), luts[1])
+    real = sampling.thumbnail(rendered, simulated.shape[1])
+    h = min(real.shape[0], simulated.shape[0])
+    return float(np.abs(sampling.to_float(real)[:h] - simulated[:h]).mean())
 

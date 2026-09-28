@@ -243,7 +243,7 @@ def _record(proj, timeline, items: list[Item], s: dict, dry_run: bool, recompute
         entries.append({
             "id": it.id, "name": it.name, "path": it.path, "group": it.group,
             "timeline_start": it.timeline_start, "source_start": it.start, "source_frames": it.duration,
-            "clip_fps": it.fps,
+            "clip_fps": it.fps, "luts": [str(x) if x else "" for x in it.luts],
             "frames": it.frames, "meta": vars(it.meta),
             "measurement": it.measurement.to_dict() if it.measurement else None,
             "correction": shot.correction.to_dict() if shot else None,
@@ -315,7 +315,8 @@ def evaluate_flow(resolve, cfg: Config, options: dict, rep) -> None:
     rep.start("render")
     results = evaluate.evaluate_timeline(resolve, proj, timeline, record, user_version=options.get("user_version", ""),
                                          progress=lambda v: rep.detail("render", v),
-                                         restore_preset=_master_preset(proj))
+                                         restore_preset=_master_preset(proj),
+                                         cache=sampling.Cache(base / "03_WORK" / "ANALYSIS"))
     rep.finish("render", f"{len(results)} clips, one frame each, both versions")
     rep.start("score")
     summary = evaluate.summarise(results)

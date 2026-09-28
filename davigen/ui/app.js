@@ -824,6 +824,7 @@ function evalTable(s) {
       <tr><td>White balance angle (median / 90 %)</td><td class="num">${num(s.wb_degrees.median, 1)}° / ${num(s.wb_degrees.p90, 1)}°</td></tr>
       <tr><td>Colour difference ΔE2000 (median / 90 %)</td><td class="num">${num(s.delta_e.median, 1)} / ${num(s.delta_e.p90, 1)}</td></tr>
       <tr><td>Clips needing no or only a small tweak (ΔE &lt; 3)</td><td class="num">${pct(s.small_or_none)}</td></tr>
+      ${s.simulator_error === null || s.simulator_error === undefined ? "" : `<tr><td>Simulator vs Resolve (check of davigen's colour math)</td><td class="num">${num(s.simulator_error * 100, 2)} %</td></tr>`}
       <tr><td>Big misses (ΔE &gt; 5) that had a marker</td><td class="num">${s.big_misses ? pct(s.big_misses_flagged) + ` of ${s.big_misses}` : "none"}</td></tr>
     </tbody></table>
     <p class="muted">Worst: ${s.worst.slice(0, 5).map((w) => `${esc(w.clip)} (${num(w.delta_e, 1)})`).join(", ")}</p>
