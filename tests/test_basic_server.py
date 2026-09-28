@@ -31,3 +31,25 @@ def test_step_reporter_forwards_into_one_step():
     assert rep.steps["basic"]["detail"] == "Sample frames · rendering 12 frames"
     sub.warn(["clip A: node missing"])
     assert rep.warnings == ["clip A: node missing"]
+
+
+def test_clip_detail_and_preview(tmp_path, monkeypatch):
+    from davigen import colormath
+    if not colormath.available():
+        pytest.skip("colour-science not installed")
+    import test_basic_run as tr
+    from davigen.basic import run
+    d = tmp_path / "luts"
+    d.mkdir()
+    luts = (str(colormath.input_lut("V-Log", "V-Gamut", d / "in.cube", size=17)),
+            str(colormath.output_lut(d / "out.cube", size=33)))
+    resolve, proj, item = tr.tunnel(luts)
+    run.basic_correction(resolve, Config(), creator.Reporter(run.STEPS), base=tmp_path)
+    monkeypatch.setattr(creator, "project_base", lambda p: tmp_path)
+    app = server.App(resolve=resolve, cfg=Config())
+    detail = app.basic_clip({"id": [item.uid]})
+    assert detail["ok"] and detail["keyframes"]["frames"] and detail["samples_over_time"]
+    assert detail["correction"]["values"]["exposure_reason"]
+    png = app.basic_preview({"id": [item.uid], "frame": ["200"]})    # no ffmpeg for a fake file: the cache
+    assert png.startswith(b"\x89PNG")
+    assert app.basic_clip({"id": ["nope"]})["ok"] is False

@@ -243,3 +243,20 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 12
 .report-table tbody tr:hover td { background: var(--hover, rgba(127, 127, 127, 0.08)); }
 .report .row { margin-top: 12px; align-items: center; }
 .report button { white-space: nowrap; }
+.report-table tr.detail { cursor: default; }
+.report-table tr.detail:hover td { background: none; }
+.clip-detail { display: flex; gap: 18px; flex-wrap: wrap; padding: 8px 0 14px; }
+.clip-detail .ba-wrap { flex: 1 1 420px; max-width: 640px; }
+.clip-detail img.ba { width: 100%; border-radius: 4px; display: block; background: #111; min-height: 80px; }
+.clip-detail input[type=range] { width: 70%; margin-top: 6px; }
+.clip-detail .clip-facts { flex: 1 1 360px; }
+.clip-detail .small { font-size: 11.5px; margin-left: 6px; }
+table.decisions { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0 10px; }
+table.decisions th { text-align: left; font-weight: 500; color: var(--muted); padding: 4px 6px 4px 0; }
+table.decisions td { padding: 5px 6px 5px 0; border-top: 1px solid var(--line); vertical-align: top; }
+svg.plot { width: 100%; max-width: 460px; height: auto; display: block; margin-bottom: 8px; }
+svg.plot .raw { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+svg.plot .out { fill: none; stroke: #3b82f6; stroke-width: 2; }
+svg.plot .grey { stroke: var(--line); stroke-dasharray: 3 3; }
+svg.plot .kf { stroke: #f59e0b; stroke-width: 1; opacity: 0.7; }
+svg.plot .lbl { font-size: 9px; fill: var(--muted); }

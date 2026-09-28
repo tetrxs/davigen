@@ -28,7 +28,8 @@ UI_DIR = Path(__file__).resolve().parent / "ui"
 # Resolve's scripting API isn't thread-safe: requests that talk to Resolve run one at a time.
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
 RESOLVE_ROUTES = {"/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
-                  "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn"}
+                  "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn",
+                  "/api/basic/clip"}
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
 
 
@@ -194,6 +195,35 @@ class App:
         record = write.load_record(creator.project_base(proj), timeline.GetName())
         return {"timeline": timeline.GetName(), "date": record.get("date", ""), "dry_run": record.get("dry_run"),
                 "rows": basic.rows(record)}
+
+    def _basic_entry(self, item_id: str) -> tuple[dict, object]:
+        from .basic import write  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        timeline = proj.GetCurrentTimeline() if proj else None
+        if timeline is None:
+            return {}, None
+        base = creator.project_base(proj)
+        record = write.load_record(base, timeline.GetName())
+        return next((e for e in record.get("items", []) if e.get("id") == item_id), {}), base
+
+    def basic_clip(self, q: dict) -> dict:
+        """Everything the record knows about one clip: what was measured, what was decided and why."""
+        entry, _ = self._basic_entry((q.get("id") or [""])[0])
+        if not entry:
+            return {"ok": False, "error": "That clip isn't in the last report of this timeline"}
+        keep = ("id", "name", "group", "source_start", "source_frames", "clip_fps", "frames", "meta", "measurement",
+                "correction", "scene", "hero", "scene_notes", "outcome", "keyframes", "samples_over_time")
+        return {"ok": True, **{k: entry.get(k) for k in keep}}
+
+    def basic_preview(self, q: dict) -> bytes:
+        """PNG: one frame of a clip before | after DAVIGEN_AUTO."""
+        from .basic import preview  # noqa: PLC0415
+        entry, base = self._basic_entry((q.get("id") or [""])[0])
+        if not entry:
+            raise FileNotFoundError("unknown clip")
+        frames = entry.get("frames") or [entry.get("source_start", 0)]
+        frame = int((q.get("frame") or [frames[len(frames) // 2]])[0])
+        return preview.png(preview.before_after(entry, frame, base / "03_WORK" / "ANALYSIS"))
 
     def basic_learn(self, body: dict) -> dict:
         """Take the last 'Compare with my grade' of the current timeline over into the learned offsets."""
@@ -386,6 +416,7 @@ def make_handler(app: App):
         "/api/catalog": app.catalog_search,
         "/api/catalog/status": lambda q: app.catalog_info(),
         "/api/basic/report": app.basic_report,
+        "/api/basic/clip": app.basic_clip,
     }
     routes_post = {
         "/api/validate": app.validate,
@@ -441,6 +472,16 @@ def make_handler(app: App):
                     return self._json(data)
                 except Exception as e:  # noqa: BLE001 - report instead of dropping the connection
                     return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
+            if url.path == "/basic/preview.png":
+                # an <img> can't send the token header, so it comes as a query parameter here
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                try:
+                    with app.resolve_lock:
+                        return self._send(200, app.basic_preview(query), "image/png")
+                except Exception as e:  # noqa: BLE001
+                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
             if url.path.startswith("/catalog/thumbs/"):
                 thumb = catalog.thumb_path(url.path.rsplit("/", 1)[-1])
                 if thumb is None:

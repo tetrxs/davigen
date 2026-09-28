@@ -808,26 +808,115 @@ function reportTable(rows, timeline) {
     const stops = r.stops === null || r.stops === undefined ? "–" : `${r.stops >= 0 ? "+" : ""}${num(r.stops)}`;
     const cct = r.cct_before ? `${Math.round(r.cct_before)} → ${Math.round(r.cct_after)} K` : "–";
     const notes = [...(r.flags || []), r.skipped && !r.written ? r.skipped : ""].filter(Boolean);
-    return `<tr data-goto="${esc(r.id)}" title="Show this clip on the Color page">
+    return `<tr data-goto="${esc(r.id)}" title="Details">
       <td><span class="dot ${cls}"></span>${esc(r.name)}${r.hero ? ' <span class="tag">hero</span>' : ""}</td>
       <td class="num">${r.scene === null || r.scene === undefined ? "–" : r.scene + 1}</td>
       <td class="num">${conf === null ? "–" : num(conf)}</td>
-      <td class="num">${stops}</td><td class="num">${cct}</td>
+      <td class="num">${stops}${r.keyframes ? ` <span class="tag" title="${r.keyframes} keyframes">KF</span>` : ""}</td><td class="num">${cct}</td>
       <td class="num">${num(r.contrast)}</td><td class="num">${num(r.saturation)}</td>
       <td class="flags">${notes.map(esc).join(", ")}</td></tr>`;
   }).join("");
   return `<div class="report"><h3>Report · ${esc(timeline || "")}</h3>
-    <p class="muted">Click a row to see the clip on the Color page. Stops, white balance and contrast are what went into
-    DAVIGEN_AUTO; flagged clips also have a marker in Resolve.</p>
+    <p class="muted">Click a row for the details: before | after, what was measured and why each value was written.
+    Flagged clips also have a marker in Resolve.</p>
     <table class="report-table"><thead><tr><th>Clip</th><th>Scene</th><th>Confidence</th><th>Exposure</th>
     <th>White balance</th><th>Contrast</th><th>Sat</th><th>Notes</th></tr></thead><tbody>${body}</tbody></table></div>`;
 }
 document.addEventListener("click", async (e) => {
+  const go = e.target.closest("[data-color]");
+  if (go) {
+    const r = await api("/api/basic/goto", { id: go.dataset.color });
+    if (!r.ok) notify("That clip isn't on the current timeline anymore.");
+    return;
+  }
   const row = e.target.closest("[data-goto]");
   if (!row) return;
-  const r = await api("/api/basic/goto", { id: row.dataset.goto });
-  if (!r.ok) notify("That clip isn't on the current timeline anymore.");
+  const open = row.nextElementSibling && row.nextElementSibling.classList.contains("detail");
+  document.querySelectorAll(".report-table tr.detail").forEach((d) => d.remove());
+  if (open) return;
+  const tr = document.createElement("tr");
+  tr.className = "detail";
+  tr.innerHTML = '<td colspan="8"><p class="muted">Loading …</p></td>';
+  row.after(tr);
+  const d = await api(`/api/basic/clip?id=${encodeURIComponent(row.dataset.goto)}`);
+  tr.firstElementChild.innerHTML = d.ok ? clipDetail(d) : `<p class="muted">${esc(d.error || "No details")}</p>`;
 });
+document.addEventListener("input", (e) => {
+  const slider = e.target.closest(".detail input[type=range]");
+  if (!slider) return;
+  const frames = JSON.parse(slider.dataset.frames);
+  const f = frames[Number(slider.value)];
+  const img = slider.closest(".detail").querySelector("img.ba");
+  img.src = previewUrl(slider.dataset.id, f);
+  slider.nextElementSibling.textContent = `source frame ${f}`;
+});
+const previewUrl = (id, frame) => `/basic/preview.png?id=${encodeURIComponent(id)}&frame=${frame}&t=${encodeURIComponent(TOKEN)}`;
+const sign = (v, d = 2) => (v === null || v === undefined ? "–" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(d)}`);
+
+function clipDetail(d) {
+  const m = d.measurement || {}, c = d.correction || {}, v = c.values || {}, conf = c.confidence || {};
+  const series = (d.samples_over_time || []).filter((s) => s.stops !== null && s.stops !== undefined);
+  const frames = series.length ? series.map((s) => s.frame) : (d.frames || []);
+  const mid = Math.floor(frames.length / 2);
+  const kf = d.keyframes;
+  const rows = [
+    ["Exposure", `key ${sign(m.exposure_stops)} stops (spread ${num(m.exposure_spread, 1)}), headroom ${num(v.exposure_headroom, 1)} stops`
+      + (m.ev100 !== null && m.ev100 !== undefined ? `, EV100 ${num(m.ev100, 1)}` : ""),
+     `${sign(v.exposure_stops)} stops`, v.exposure_reason, conf["01_EXPOSURE"]],
+    ["White balance", `${Math.round(m.cct || 0)} K, Duv ${num(m.duv, 4)}, neutral surfaces ${num((m.achromatic_fraction || 0) * 100, 0)} %`,
+     `→ ${Math.round(v.cct_after || 0)} K`, d.scene_notes && d.scene_notes.white_balance ? d.scene_notes.white_balance : "", conf["02_WHITE_BALANCE"]],
+    ["Contrast", `black ${num(v.black_before, 3)} · white ${num(v.white_before, 3)} (display)`,
+     `× ${num(v.contrast)}` + (Math.abs(v.grey_shift_stops || 0) > 0.01 ? `, mids ${sign(v.grey_shift_stops)} stops` : ""),
+     `black ${num(v.black_after, 3)} · white ${num(v.white_after, 3)}`, conf["03_CONTRAST"]],
+    ["Saturation", `C* ${num(v.chroma_before, 1)}`, `× ${num(v.saturation)}`, `C* ${num(v.chroma_after, 1)}`
+      + (d.scene_notes && d.scene_notes.saturation_pulled ? " (matched to the scene)" : ""), conf["04_SATURATION"]],
+  ];
+  const table = `<table class="decisions"><thead><tr><th></th><th>Measured</th><th>Written</th><th>Why / result</th><th>Confidence</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td><td class="num">${esc(r[2])}</td><td>${esc(r[3] || "")}</td><td class="num">${num(r[4])}</td></tr>`).join("")}
+    </tbody></table>`;
+  const facts = [
+    d.scene !== null && d.scene !== undefined ? `scene ${d.scene + 1}${d.hero ? " (hero)" : ""}` : "",
+    m.clipped_fraction ? `clipped ${num(m.clipped_fraction * 100, 1)} %` : "",
+    m.skin_fraction ? `skin ${num(m.skin_fraction * 100, 1)} %` : "",
+    kf ? `${kf.frames.length} keyframes: ${kf.reason}` : "constant values",
+    (d.outcome && d.outcome.skipped) ? `not written: ${d.outcome.skipped}` : "",
+  ].filter(Boolean);
+  return `<div class="clip-detail">
+    <div class="ba-wrap"><img class="ba" alt="before | after" src="${previewUrl(d.id, frames[mid] ?? d.source_start)}">
+      <div class="muted small">left: the colour group only · right: with DAVIGEN_AUTO</div>
+      ${frames.length > 1 ? `<input type="range" min="0" max="${frames.length - 1}" value="${mid}" data-id="${esc(d.id)}" data-frames='${JSON.stringify(frames)}'><span class="muted small">source frame ${frames[mid]}</span>` : ""}
+    </div>
+    <div class="clip-facts"><p class="muted">${facts.map(esc).join(" · ")}</p>${table}
+      ${series.length > 1 ? exposurePlot(series, v, kf, d) : ""}
+      ${(c.flags || []).length ? `<p class="muted">Flags: ${c.flags.map(esc).join(", ")}</p>` : ""}
+      <button class="secondary" data-color="${esc(d.id)}">Show on the Color page</button></div></div>`;
+}
+
+function exposurePlot(series, v, kf, d) {
+  // the key of each measured frame, as shot and after DAVIGEN_AUTO (keyframes included), in stops around grey
+  const W = 420, H = 120, pad = 22;
+  const f0 = d.source_start, f1 = d.source_start + Math.max(1, d.source_frames - 1);
+  const at = (f) => {
+    if (!kf) return 0;
+    const fr = kf.frames, st = kf.stops;
+    if (f <= fr[0]) return st[0];
+    if (f >= fr[fr.length - 1]) return st[st.length - 1];
+    for (let i = 1; i < fr.length; i++) if (f <= fr[i]) return st[i - 1] + (st[i] - st[i - 1]) * (f - fr[i - 1]) / (fr[i] - fr[i - 1]);
+    return 0;
+  };
+  const pts = series.map((s) => ({ f: s.frame, raw: s.stops, out: s.stops + (v.exposure_stops || 0) + at(s.frame) }));
+  const all = pts.flatMap((p) => [p.raw, p.out]).concat([0]);
+  const lo = Math.floor(Math.min(...all)) - 0.5, hi = Math.ceil(Math.max(...all)) + 0.5;
+  const x = (f) => pad + (W - 2 * pad) * (f - f0) / Math.max(1, f1 - f0);
+  const y = (s) => H - pad + (2 * pad - H) * (s - lo) / (hi - lo);
+  const line = (key) => pts.map((p, i) => `${i ? "L" : "M"}${x(p.f).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
+  const ticks = kf ? kf.frames.map((f) => `<line x1="${x(f)}" x2="${x(f)}" y1="${pad / 2}" y2="${H - pad}" class="kf"/>`).join("") : "";
+  return `<svg class="plot" viewBox="0 0 ${W} ${H}" role="img" aria-label="Exposure over time">
+    <line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" class="grey"/>${ticks}
+    <path d="${line("raw")}" class="raw"/><path d="${line("out")}" class="out"/>
+    <text x="${pad}" y="${H - 6}" class="lbl">key over the clip · grey: as shot · blue: with DAVIGEN_AUTO${kf ? " · lines: keyframes" : ""}</text>
+    <text x="2" y="${y(0) + 3}" class="lbl">0</text></svg>`;
+}
 function evalTable(s) {
   if (!s.clips) return '<p class="muted">Nothing to compare: no clip has both your version and DAVIGEN_AUTO.</p>';
   const pct = (v) => (v === null || v === undefined ? "–" : `${Math.round(v * 100)} %`);
