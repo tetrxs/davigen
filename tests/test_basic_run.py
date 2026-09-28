@@ -4,7 +4,7 @@ np = pytest.importorskip("numpy")
 
 import fake_resolve as fr  # noqa: E402 - tests/ is on sys.path under pytest
 from davigen import colormath  # noqa: E402
-from davigen.basic import run, write  # noqa: E402
+from davigen.basic import pipeline as p, run, write  # noqa: E402
 from davigen.config import Config  # noqa: E402
 from davigen.creator import Reporter  # noqa: E402
 
@@ -85,3 +85,47 @@ def test_goto(luts):
     resolve, proj, tl, items = setup(luts)
     assert run.goto(resolve, items[1].uid)
     assert tl.timecode == "01:00:10:00" and resolve.page == "color"
+
+
+def tunnel(luts):
+    """One clip that leaves a tunnel at source frame 250: three stops darker before."""
+    colour = colormath._colour()
+    rng = np.random.default_rng(3)
+    level = 0.18 * np.exp(rng.normal(0, 0.7, (8, 12, 1)))
+    lin = np.kron(level * np.ones(3), np.ones((8, 8, 1)))
+
+    def frame(n):
+        return colour.models.log_encoding_VLog(lin * (2.0 ** -3.5 if n < 250 else 1.0))
+    group = fr.Group("S1II_VLOG", *luts)
+    mpi = fr.MediaPoolItem("/footage/T.MOV", "S1II_VLOG", 600, frame)
+    item = fr.TimelineItem(mpi, 90000, 400, 100, labels=fr.LABELS, group=group)
+    proj = fr.Project("TEST", [fr.Timeline("TL_01_ASSEMBLY", [item])], [group])
+    return fr.Resolve(proj), proj, item
+
+
+def test_tunnel_exit_is_keyframed(luts, tmp_path):
+    resolve, proj, item = tunnel(luts)
+    record = run.basic_correction(resolve, Config(), Reporter(run.STEPS), base=tmp_path)
+    e = record["items"][0]
+    kf = e["keyframes"]
+    assert kf and kf["frames"][0] < 250 < kf["frames"][-1]
+    # the change was found to within a few frames by measuring more around it
+    before = max(f for f in kf["frames"] if f < 250)
+    after = min(f for f in kf["frames"] if f >= 250)
+    assert after - before <= 8
+    assert e["outcome"]["keyframes"] == len(kf["frames"]) and "ApplyGradeFromDRX:2" in item.calls
+    assert item.versions["Version 1"].get("keyframes") is None          # the user's version is untouched
+    # rendered through the fake: the tunnel is lifted, the street is not
+    inside, outside = proj._graded(item, 200), proj._graded(item, 300)
+    plain_in = p.apply_lut(p.apply_lut(item.mpi.log_frame(200), luts[0]), luts[1])
+    assert p.luminance(inside).mean() > 1.2 * p.luminance(plain_in).mean()          # +1.4 stops (the limit)
+    assert abs(float(p.luminance(outside).mean()) - 0.45) < 0.2
+    # a second run with recompute replaces the keyframed grade again
+    run.basic_correction(resolve, Config(), Reporter(run.STEPS), base=tmp_path, recompute=True)
+    assert item.calls.count("ApplyGradeFromDRX:2") == 2
+    # with keyframes switched off, the next recompute starts DAVIGEN_AUTO from the plain structure again
+    cfg = Config()
+    cfg.workflow.setdefault("basic_correction", {}).setdefault("dynamic", {})["enabled"] = False
+    run.basic_correction(resolve, cfg, Reporter(run.STEPS), base=tmp_path, recompute=True)
+    assert "ApplyGradeFromDRX:0" in item.calls and not item.versions[write.AUTO].get("keyframes")
+    assert item.versions[write.AUTO]["cdl"]                                 # constant values written

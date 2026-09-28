@@ -267,6 +267,24 @@ dominant = 0.4
 mixed_light = 0.3
 haze = 0.3
 
+# Changes within a clip (concept §14): a tunnel exit, a cloud, a pan from shade into sun get keyframes on nodes
+# 01 and 02. Small moves around the shot's median are composition, not light, and stay alone.
+[basic_correction.dynamic]
+enabled = true
+min_change_stops = 1.0              # the key must move this much within the shot (one-sample outliers dropped) …
+min_change_mired = 30               # … or the light this much (only with a confident white balance)
+min_wb_confidence = 0.6
+dead_stops = 0.5                    # moves up to this around the shot's median are left alone …
+dead_mired = 15
+follow = 0.75                       # … beyond it, this share is corrected (1 evens it out; less keeps a tunnel darker)
+wb_follow = 0.8
+refine_step_stops = 0.4             # neighbouring samples further apart than this get more samples in between …
+refine_step_mired = 20
+refine_frames = 6                   # … this many per gap, in up to refine_passes extra renders
+refine_passes = 2
+tolerance_stops = 0.05              # a keyframe goes where a straight line between its neighbours is further off than this
+max_keyframes = 16
+
 [basic_correction.scenes]
 gap_minutes = 10                    # a longer pause between recordings starts a new scene
 split_ev = 3.0                      # … so does a jump in EV100 …

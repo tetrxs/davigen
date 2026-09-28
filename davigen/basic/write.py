@@ -3,6 +3,10 @@
 Every write goes into the local version DAVIGEN_AUTO. AddVersion copies the current grade and makes the copy
 active (step 01), so the user's own version keeps everything, and switching versions on the Color page is a
 before/after. Nodes are found by label, never by position. Flags become timeline-item markers.
+
+A clip whose light changes (dynamic.py) gets its values as keyframes. SetCDL can't write keyframes, so its grade
+in DAVIGEN_AUTO is replaced by a keyframed copy of davigen's six-node structure (drx.make_keyframe_drx), and only
+when DAVIGEN_AUTO has exactly that structure (concept §12, §14).
 """
 
 from __future__ import annotations
@@ -11,15 +15,18 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .. import color
+from .. import color, drx
 from ..media_pool import META_GROUP
 from . import correct as c
 from . import pipeline as p
+from .dynamic import Keyframes
 
 AUTO = "DAVIGEN_AUTO"
 MARKER_DATA = "davigen-basic"
 NOT_IN_GROUP = "not in its colour group"
 NO_NODES = "node structure missing"
+STRUCTURE = (*c.NODES, "05_SECONDARIES", "06_FINISH")     # the clip nodes of templates/drx/CLIP_STRUCTURE.drx
+KEYFRAME_MODE = 2                   # ApplyGradeFromDRX: keyframes at their source frames (verified, concept §12)
 
 
 @dataclass
@@ -30,6 +37,7 @@ class Outcome:
     user_version: str = ""
     marker: str = ""
     warnings: list[str] = field(default_factory=list)
+    keyframes: int = 0                                          # keyframes written (0: constant values)
 
 
 def ensure_group(project, item) -> bool:
@@ -61,8 +69,11 @@ def _version_name(item) -> str:
 
 
 def write_item(project, item, correction: c.Correction | None, recompute: bool = False, dry_run: bool = False,
-               previous_user_version: str = "") -> Outcome:
-    """Write one item's four nodes into DAVIGEN_AUTO. Never raises for Resolve refusals; they end up in Outcome."""
+               previous_user_version: str = "", keyframes: Keyframes | None = None,
+               drx_folder: Path | None = None, had_keyframes: bool = False) -> Outcome:
+    """Write one item's four nodes into DAVIGEN_AUTO, keyframed when `keyframes` is given. had_keyframes: the
+    last run keyframed DAVIGEN_AUTO (SetCDL can't write over keyframes, so it starts from the plain structure).
+    Never raises for Resolve refusals; they end up in Outcome."""
     out = Outcome()
     if correction is None:
         out.skipped = "not measured"
@@ -98,6 +109,11 @@ def write_item(project, item, correction: c.Correction | None, recompute: bool =
         out.skipped = f"{AUTO} isn't the active version – nothing written"
         return out
 
+    if keyframes is not None and drx_folder is not None:
+        if _write_keyframes(item, keyframes, drx_folder, out):
+            return out
+    elif had_keyframes and labels(item.GetNodeGraph()) == STRUCTURE and color.CLIP_TEMPLATE.exists():
+        item.GetNodeGraph().ApplyGradeFromDRX(str(color.CLIP_TEMPLATE), 0)
     indices = node_indices(item.GetNodeGraph())
     for label in c.NODES:
         if label not in indices:
@@ -112,6 +128,53 @@ def write_item(project, item, correction: c.Correction | None, recompute: bool =
         if not ok:
             out.warnings.append(f"Resolve refused the values for {label}")
     return out
+
+
+def labels(graph) -> tuple[str, ...]:
+    return tuple(graph.GetNodeLabel(i) or "" for i in range(1, (graph.GetNumNodes() or 0) + 1))
+
+
+def params(label: str, cdl: p.Cdl) -> dict[int, float]:
+    """A node's CDL as primaries parameters (concept §12): nodes 01–02 are offsets, 03 contrast around a pivot,
+    04 saturation with Lum Mix 0 (what SetCDL sets too)."""
+    if label in (c.EXPOSURE, c.WHITE_BALANCE):
+        return {pid: o / drx.OFFSET_SCALE for pid, o in zip(drx.P_OFFSET, cdl.offset)}
+    if label == c.CONTRAST:
+        k = cdl.slope[0]
+        pivot = cdl.offset[0] / (1.0 - k) if abs(1.0 - k) > 1e-6 else p.GREY
+        return {drx.P_CONTRAST: k, drx.P_PIVOT: pivot}
+    if label == c.SATURATION:
+        return {drx.P_SATURATION: cdl.sat, drx.P_LUM_MIX: 0.0}
+    raise ValueError(label)
+
+
+def _write_keyframes(item, kf: Keyframes, folder: Path, out: Outcome) -> bool:
+    """Replace DAVIGEN_AUTO's grade by the keyframed structure. False: fall back to constant values."""
+    graph = item.GetNodeGraph()
+    if labels(graph) != STRUCTURE:
+        out.warnings.append("keyframes skipped: the nodes differ from davigen's structure – constant values written")
+        return False
+    folder.mkdir(parents=True, exist_ok=True)
+    name = "".join(ch if ch.isalnum() else "_" for ch in str(item.GetUniqueId() if hasattr(item, "GetUniqueId")
+                                                            else item.GetName()))
+    target = folder / f"{name}.drx"
+    nodes = {label: [params(label, cdl) for cdl in kf.nodes[label]] for label in c.NODES}
+    target.write_text(drx.make_keyframe_drx(drx.KEYFRAME_TEMPLATE.read_text(encoding="utf-8"), kf.frames, nodes),
+                      encoding="utf-8")
+    try:
+        ok = bool(graph.ApplyGradeFromDRX(str(target), KEYFRAME_MODE))
+    except Exception as e:  # noqa: BLE001
+        ok = False
+        out.warnings.append(f"ApplyGradeFromDRX: {e}")
+    graph = item.GetNodeGraph()                         # the old graph object is stale after a DRX
+    if not ok or labels(graph) != STRUCTURE:
+        out.warnings.append("Resolve didn't take the keyframed grade – constant values written")
+        if labels(graph) != STRUCTURE and color.CLIP_TEMPLATE.exists():
+            graph.ApplyGradeFromDRX(str(color.CLIP_TEMPLATE), 0)
+        return False
+    out.written = {label: True for label in c.NODES}
+    out.keyframes = len(kf.frames)
+    return True
 
 
 # ------------------------------------------------------------------------------------------------ markers

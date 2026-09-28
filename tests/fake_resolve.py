@@ -36,8 +36,34 @@ class Graph:
         return self._grade().get("lut", "")
 
     def ApplyGradeFromDRX(self, path, mode):
-        self._grade()["labels"] = list(LABELS)
+        from davigen import drx
+        self.item.calls.append(f"ApplyGradeFromDRX:{mode}")
+        grade = self._grade()
+        grade["labels"], grade["cdl"] = list(LABELS), {}
+        try:
+            kf = drx.read_keyframes(Path(path).read_text(encoding="utf-8", errors="replace"))
+        except (ValueError, IndexError, OSError):
+            kf = {}
+        timed = {label: [(t, v) for t, v in rows if t is not None] for label, rows in kf.items()}
+        grade["keyframes"] = {label: rows for label, rows in timed.items() if rows and any(v for _, v in rows)}
         return True
+
+
+def keyframed_cdl(label, rows, frame):
+    """The CDL a keyframed node has at a source frame: linear between keyframes, held outside (as verified)."""
+    from davigen import drx
+    from davigen.basic import pipeline as p
+    frames = [t for t, _ in rows]
+    ids = sorted({k for _, v in rows for k in v})
+    at = {k: float(np.interp(frame, frames, [v.get(k, 0.0) for _, v in rows])) for k in ids}
+    if drx.P_OFFSET[0] in at:
+        return p.Cdl(offset=tuple(at[k] * drx.OFFSET_SCALE for k in drx.P_OFFSET))
+    if drx.P_CONTRAST in at:
+        k, pivot = at[drx.P_CONTRAST], at.get(drx.P_PIVOT, p.GREY)
+        return p.Cdl(slope=(k, k, k), offset=(pivot * (1 - k),) * 3)
+    if drx.P_SATURATION in at:
+        return p.Cdl(sat=at[drx.P_SATURATION])
+    return p.Cdl()
 
 
 class GroupGraph:
@@ -169,6 +195,8 @@ class TimelineItem:
         self.calls.append("SetCDL")
         if self.refuse_cdl:
             return False
+        if self.versions[self.current].get("keyframes"):
+            return True                     # Resolve says yes but doesn't write into keyframed nodes (step 01)
         self.versions[self.current]["cdl"][int(cdl["NodeIndex"])] = cdl
         return True
 
@@ -372,6 +400,8 @@ class Project:
         log = ti.mpi.log_frame(frame)
         group = ti.group or next(g for g in self.groups if g.name == ti.mpi.group)
         img = p.apply_lut(log, group.pre.lut)
+        for label, rows in ti.versions[ti.current].get("keyframes", {}).items():
+            img = p.apply_cdl(img, keyframed_cdl(label, rows, frame))
         for _, cdl in sorted(ti.versions[ti.current]["cdl"].items()):
             nums = {k: [float(v) for v in cdl[k].split()] for k in ("Slope", "Offset", "Power", "Saturation")}
             img = p.apply_cdl(img, p.Cdl(tuple(nums["Slope"]), tuple(nums["Offset"]), tuple(nums["Power"]),

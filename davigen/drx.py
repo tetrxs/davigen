@@ -1,4 +1,4 @@
-"""Generate Resolve grade files (.drx) for Color Space Transform nodes.
+"""Generate Resolve grade files (.drx): Color Space Transform nodes, and keyframed primaries.
 
 A .drx is XML whose <Body> holds ``0x81 + zstd(protobuf)``. The protobuf carries the
 CST parameters as plain enum strings (e.g. ``VLOG_COLORSPACE``), so a template
@@ -10,8 +10,10 @@ for ElementTree) so everything outside the changed <Body> stays byte-identical.
 
 from __future__ import annotations
 
+import copy
 import re
 import shutil
+import struct
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -266,3 +268,122 @@ def write_cst_drx(template: Path, target: Path, values: dict[str, str | None]) -
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(make_cst_drx(template.read_text(encoding="utf-8"), values))
     return target
+
+
+# ------------------------------------------------------------------ keyframed primaries
+
+# Found by exporting stills from Resolve 21 and rendering crafted grades (concept BASIC_CORRECTION §12).
+# A node block (field 7 of the grade) carries its label in field 6 and its keyframe tracks in field 9; track 1 holds
+# the primaries. A track's entries (field 6) are the untimed base value, then one entry per keyframe whose field 1
+# is the time: twice the absolute source frame, in the clip's own frame rate. Every parameter is
+# {1: id, 2: {1: float}}, and Resolve ignores parameters that aren't sorted by id.
+KEYFRAME_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "drx" / "KEYFRAME_BASE.drx"
+PRIMARIES_TRACK = 1
+P_SATURATION = 100663301
+P_OFFSET = (100663421, 100663422, 100663423)
+P_LUM_MIX = 2248146955
+P_PIVOT = 2248147136
+P_CONTRAST = 2248147137
+OFFSET_SCALE = 0.18328          # one unit of the Offset parameter moves a DaVinci Intermediate code value by this
+TIME_PER_FRAME = 2
+
+
+def _int(fields, number: int) -> int | None:
+    return next((_read_varint(f.raw, 0)[0] for f in fields if f.number == number and f.wire == 0), None)
+
+
+def _f32(value: float) -> bytes:
+    return struct.pack("<f", float(value))
+
+
+def _param(pid: int, value: float) -> Field:
+    inner = Message([Field(1, 5, _f32(value))])
+    msg = Message([Field(1, 0, _varint(pid)), Field(2, 2, b"", inner)])
+    return Field(3, 2, b"", msg)
+
+
+def _set_params(entry: Field, values: dict[int, float]) -> None:
+    """Set float parameters in a track entry; kept sorted by id."""
+    body = next(f for f in entry.message if f.number == 2).message
+    params = {_int(f.message, 1): f for f in body if f.number == 3}
+    for pid, value in values.items():
+        params[pid] = _param(pid, value)
+    body[:] = [f for f in body if f.number != 3] + [params[k] for k in sorted(params)]
+
+
+def _node_blocks(root: Message) -> dict[str, Message]:
+    out = {}
+    for blk in (f for f in root[0].message if f.number == 7):
+        label = next((x.raw for x in blk.message if x.number == 6), b"")
+        out[label.decode("utf-8", "replace")] = blk.message
+    return out
+
+
+def _retime(track: Message, times: list[int]) -> list[Field]:
+    """A track's entries for `times`: the base entry, then a copy of the template's first timed entry per time."""
+    entries = [f for f in track if f.number == 6]
+    base = next(e for e in entries if _int(e.message, 1) is None)
+    proto = next(e for e in entries if _int(e.message, 1) is not None)
+    timed = []
+    for t in times:
+        e = copy.deepcopy(proto)
+        next(x for x in e.message if x.number == 1).raw = _varint(t * TIME_PER_FRAME)
+        timed.append(e)
+    rest = [f for f in track if f.number != 6]
+    track[:] = rest + [base] + timed
+    return [base] + timed
+
+
+def make_keyframe_drx(template_text: str, frames: list[int], nodes: dict[str, list[dict[int, float]]]) -> str:
+    """A grade whose nodes carry primaries keyframes at the given source frames.
+
+    nodes: label → one {parameter id: value} per frame (the same ids each time). The base value is the first
+    keyframe's. Resolve keyframes every node of a grade together, so nodes not named get the same times with
+    their template values.
+    """
+    frames = [int(f) for f in frames]
+    if not frames or sorted(set(frames)) != frames:
+        raise ValueError("keyframes need increasing source frames")
+    for label, values in nodes.items():
+        if len(values) != len(frames):
+            raise ValueError(f"{label}: {len(values)} values for {len(frames)} keyframes")
+    hex_body = _BODY_RE.findall(template_text)[0]
+    root = parse(decode_body(hex_body))
+    blocks = _node_blocks(root)
+    missing = set(nodes) - set(blocks)
+    if missing:
+        raise ValueError(f"template has no node {sorted(missing)}")
+    for label, blk in blocks.items():
+        track9 = next(x for x in blk if x.number == 9).message
+        for track in (x for x in track9 if x.number == 1 and x.message is not None):
+            entries = _retime(track.message, frames)
+            if label in nodes and _int(track.message, 1) == PRIMARIES_TRACK:
+                _set_params(entries[0], nodes[label][0])
+                for e, values in zip(entries[1:], nodes[label]):
+                    _set_params(e, values)
+    return template_text.replace(hex_body, encode_body(root.encode()), 1)
+
+
+def read_keyframes(drx_text: str) -> dict[str, list[tuple[int | None, dict[int, float]]]]:
+    """label → [(source frame or None for the base value, {parameter id: float})] of the primaries track."""
+    root = parse(decode_body(_BODY_RE.findall(drx_text)[0]))
+    out = {}
+    for label, blk in _node_blocks(root).items():
+        track9 = next((x for x in blk if x.number == 9), None)
+        rows = []
+        for track in (x for x in (track9.message if track9 is not None and track9.message is not None else [])
+                      if x.number == 1 and x.message is not None):
+            if _int(track.message, 1) != PRIMARIES_TRACK:
+                continue
+            for e in (f for f in track.message if f.number == 6):
+                t = _int(e.message, 1)
+                body = next(f for f in e.message if f.number == 2).message
+                values = {}
+                for prm in (f for f in body if f.number == 3):
+                    val = next((x for x in prm.message if x.number == 2), None)
+                    num = next((x for x in val.message if x.number == 1 and x.wire == 5), None) if val and val.message else None
+                    if num is not None:
+                        values[_int(prm.message, 1)] = struct.unpack("<f", num.raw)[0]
+                rows.append((None if t is None else t // TIME_PER_FRAME, values))
+        out[label] = rows
+    return out

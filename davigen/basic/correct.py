@@ -223,15 +223,9 @@ def _strength(cct: float, table) -> float:
 
 def _white_balance(m: ms.Measurement, settings: dict, values: dict, exposure: p.Cdl):
     """Offsets that are exact for a neutral surface at the frame's key, as node 01 leaves it."""
-    wb, conf, fl = settings["white_balance"], settings["confidence"], settings["flags"]
-    neutral_xy = p.dwg_to_xy(np.ones(3))
-    neutral_cct, neutral_duv = p.cct_duv(neutral_xy)
+    conf, fl = settings["confidence"], settings["flags"]
     cct, duv = m.cct, m.duv
-    new_cct = cct + _strength(cct, wb["cct_strength"]) * (wb["neutral_cct"] - cct)
-    new_cct = min(max(new_cct + settings.get("learned", {}).get("kelvin", 0.0), 1800.0), 20000.0)
-    duv_error = duv - neutral_duv
-    limited = abs(duv_error) > wb["max_duv"]
-    new_duv = duv - math.copysign(min(abs(duv_error), wb["max_duv"]), duv_error)   # Duv fully, up to max_duv
+    new_cct, new_duv, limited = wb_target(cct, duv, settings)
     cdl, gains = white_balance_cdl(m, exposure, new_cct, new_duv)
 
     # estimators always disagree a little on real scenes; only what goes beyond the free part costs confidence
@@ -246,6 +240,19 @@ def _white_balance(m: ms.Measurement, settings: dict, values: dict, exposure: p.
     values.update(cct_before=cct, duv_before=duv, cct_after=float(new_cct), duv_after=float(new_duv),
                   wb_gains=[float(g) for g in gains])
     return cdl, _clamp(confidence), limited
+
+
+def wb_target(cct: float, duv: float, settings: dict) -> tuple[float, float, bool]:
+    """Where a light of (cct, duv) should end up: CCT partly towards neutral, Duv fully up to max_duv.
+    Returns (cct, duv, limited)."""
+    wb = settings["white_balance"]
+    neutral_duv = p.cct_duv(p.dwg_to_xy(np.ones(3)))[1]
+    new_cct = cct + _strength(cct, wb["cct_strength"]) * (wb["neutral_cct"] - cct)
+    new_cct = min(max(new_cct + settings.get("learned", {}).get("kelvin", 0.0), 1800.0), 20000.0)
+    duv_error = duv - neutral_duv
+    limited = abs(duv_error) > wb["max_duv"]
+    new_duv = duv - math.copysign(min(abs(duv_error), wb["max_duv"]), duv_error)
+    return float(new_cct), float(new_duv), limited
 
 
 def white_balance_cdl(m: ms.Measurement, exposure: p.Cdl, cct: float, duv: float, illuminant=None):

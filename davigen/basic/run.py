@@ -1,4 +1,4 @@
-"""The Basic Correction flow: sample → measure → correct → scenes → write → save (plan step 08).
+"""The Basic Correction flow: sample → measure → changes → correct → scenes → write → save (plan step 08).
 
 Runs on one timeline of the open davigen project (the current one by default). Used by the home screen, the
 New project wizard and the 'davigen Basic Correction' menu entry.
@@ -17,6 +17,7 @@ from ..config import LUT_DIR, Config
 from ..media_pool import META_GROUP
 from ..resolve_api import ResolveError, find_timeline
 from . import correct as c
+from . import dynamic
 from . import measure as ms
 from . import pipeline as p
 from . import sampling, scenes, settings as settings_mod, write
@@ -24,6 +25,7 @@ from . import sampling, scenes, settings as settings_mod, write
 STEPS = [
     ("sample", "Sample frames"),
     ("measure", "Measure"),
+    ("changes", "Changes within clips"),
     ("correct", "Corrections per node"),
     ("scenes", "Scenes + matching"),
     ("write", "Write DAVIGEN_AUTO + markers"),
@@ -56,6 +58,11 @@ class Item:
         self.measurement: ms.Measurement | None = None
         self.shot: scenes.Shot | None = None
         self.outcome: write.Outcome | None = None
+        # every measured frame, the extra ones around changes included (concept §14)
+        self.all_frames: list[int] = []
+        self.all_thumbs: list[np.ndarray] = []
+        self.all_samples: list[dict] = []
+        self.keyframes: dynamic.Keyframes | None = None
 
 
 def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute: bool = False,
@@ -79,39 +86,23 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
     usable = [i for i in items if i.mpi and i.group and i.path]
     luts = _group_luts(proj)
     cache = sampling.Cache(base / "03_WORK" / "ANALYSIS")
-    todo: dict[tuple, sampling.Request] = {}
     cached: dict[str, dict[int, np.ndarray]] = {}
     for it in usable:
         it.luts = luts.get(it.group, (None, None))
         it.frames = sampling.choose_frames(it.start, it.duration, it.fps, s["samples"])
-        have = cached.setdefault(it.path, cache.load(it.path))
-        for f in it.frames:
-            if f not in have and (it.path, f) not in todo:
-                todo[(it.path, f)] = sampling.Request((it.path, f), it.mpi, f, sampling.span_for(it.fps, tl_fps))
-    rendered: dict[tuple, np.ndarray] = {}
-    if todo:
-        rep.detail("sample", f"rendering {len(todo)} frames of {len({k[0] for k in todo})} clips")
-        rendered = sampling.render(resolve, proj, list(todo.values()), s["analysis_width"],
-                                   progress=lambda pct: rep.detail("sample", f"rendering {len(todo)} frames · {pct} %"),
-                                   restore_preset=_master_preset(proj))
-        by_path: dict[str, dict[int, np.ndarray]] = {}
-        for (path, f), thumb in rendered.items():
-            by_path.setdefault(path, {})[f] = thumb
-        for path, frames in by_path.items():
-            cache.save(path, frames)
-            cached[path].update(frames)
-        # Resolve invalidates timeline and item objects when a timeline is deleted (seen in Resolve 21): fetch the
-        # timeline again by name and every item by its unique id
+    fetch = _Fetcher(resolve, proj, cache, cached, s, tl_fps, rep)
+    rendered = fetch([(it, it.frames) for it in usable], "sample")
+    if rendered:
         timeline = _refresh(proj, timeline_name_now, items)
     for it in usable:
         if it.luts[0] is None or it.luts[1] is None:
             continue
-        logs = [sampling.to_float(cached[it.path][f]) for f in it.frames if f in cached[it.path]]
-        it.thumbs = [p.apply_lut(t, it.luts[0]) for t in logs]
+        it.frames = [f for f in it.frames if f in cached[it.path]]
+        it.thumbs = fetch.thumbs(it, it.frames)
     measurable = [i for i in usable if i.thumbs]
     total = sum(len(i.thumbs) for i in measurable)
-    source = ("all rendered now" if len(rendered) >= total else "all from the cache" if not rendered
-              else f"{len(rendered)} rendered now, the rest from the cache")
+    source = ("all rendered now" if rendered >= total else "all from the cache" if not rendered
+              else f"{rendered} rendered now, the rest from the cache")
     rep.finish("sample", f"{total} frames of {len(measurable)} clips ({source})"
                + (f" · {len(usable) - len(measurable)} clips without a davigen group LUT" if len(usable) > len(measurable) else ""))
 
@@ -122,7 +113,30 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
         rep.detail("measure", f"{n}/{len(measurable)} · {it.name}")
         it.meta = metas.get(it.path, ms.ClipMeta())
         it.measurement = ms.measure(it.thumbs, it.meta, it.luts[1], s)
+        it.all_frames, it.all_thumbs = list(it.frames), list(it.thumbs)
+        it.all_samples = list(it.measurement.per_sample)
     rep.finish("measure", f"{len(measurable)} clips")
+
+    # ------------------------------------------------------------------------- changes within clips
+    # more frames where neighbouring samples differ, so keyframes sit where the light changes (concept §14)
+    rep.start("changes")
+    extra_total = 0
+    for _ in range(s["dynamic"]["refine_passes"] if s["dynamic"]["enabled"] else 0):
+        wanted = [(it, dynamic.extra_frames(it.all_frames, it.all_samples, s)) for it in measurable]
+        wanted = [(it, fr) for it, fr in wanted if fr]
+        if not wanted:
+            break
+        rep.detail("changes", f"{sum(len(fr) for _, fr in wanted)} more frames of {len(wanted)} clips")
+        if fetch(wanted, "changes"):
+            timeline = _refresh(proj, timeline_name_now, items)
+        for it, fr in wanted:
+            fr = [f for f in fr if f in cached[it.path]]
+            extra_total += len(fr)
+            frames = sorted(set(it.all_frames) | set(fr))
+            it.all_thumbs = fetch.thumbs(it, frames)
+            it.all_frames = frames
+            it.all_samples = ms.measure(it.all_thumbs, it.meta, it.luts[1], s).per_sample
+    rep.finish("changes", f"{extra_total} more frames" if extra_total else "no changes found")
 
     # ---------------------------------------------------------------------------------------- correct
     rep.start("correct")
@@ -136,12 +150,18 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
     rep.start("scenes")
     shots = [i.shot for i in measurable]
     scenes.match_scenes(shots, s)
-    rep.finish("scenes", f"{len({sh.scene for sh in shots})} scenes" if shots else "no clips")
+    for it in measurable:
+        it.keyframes = dynamic.plan(it.all_frames, it.all_samples, it.measurement, it.shot.correction,
+                                    it.all_thumbs, it.luts[1], s)
+    moving = sum(1 for i in measurable if i.keyframes)
+    rep.finish("scenes", (f"{len({sh.scene for sh in shots})} scenes" if shots else "no clips")
+               + (f" · {moving} clips get keyframes" if moving else ""))
 
     # ------------------------------------------------------------------------------------------ write
     rep.start("write", "dry run: markers and report only" if dry_run else "")
     old = write.load_record(base, timeline.GetName())
     old_versions = {e["id"]: e.get("outcome", {}).get("user_version", "") for e in old.get("items", [])}
+    old_keyed = {e["id"] for e in old.get("items", []) if (e.get("outcome") or {}).get("keyframes")}
     write.clear_markers([i.ti for i in items])
     threshold = s["confidence_flag_below"]
     for n, it in enumerate(items, 1):
@@ -153,13 +173,17 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
             continue
         corr = it.shot.correction
         it.outcome = write.write_item(proj, it.ti, corr, recompute=recompute, dry_run=dry_run,
-                                      previous_user_version=old_versions.get(it.id, ""))
+                                      previous_user_version=old_versions.get(it.id, ""),
+                                      keyframes=it.keyframes, drx_folder=base / "03_WORK" / "ANALYSIS" / "drx",
+                                      had_keyframes=it.id in old_keyed)
         it.outcome.marker = write.mark(it.ti, corr.flags, corr.overall, threshold, it.outcome.skipped)
         for w in it.outcome.warnings:
             rep.warn([f"{it.name}: {w}"])
     written = sum(1 for i in items if i.outcome and i.outcome.written)
-    rep.finish("write", f"{written} clips written into {write.AUTO}, "
-               f"{sum(1 for i in items if i.outcome and i.outcome.marker)} markers")
+    keyed = sum(1 for i in items if i.outcome and i.outcome.keyframes)
+    rep.finish("write", f"{written} clips written into {write.AUTO}"
+               + (f" ({keyed} with keyframes)" if keyed else "")
+               + f", {sum(1 for i in items if i.outcome and i.outcome.marker)} markers")
 
     # ------------------------------------------------------------------------------------------- save
     rep.start("save")
@@ -173,6 +197,43 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
 
 
 # -------------------------------------------------------------------------------------------- helpers
+
+class _Fetcher:
+    """Frames of items from the analysis cache, rendering the missing ones in one scratch-timeline render."""
+
+    def __init__(self, resolve, proj, cache, cached, s, tl_fps, rep):
+        self.resolve, self.proj, self.cache, self.cached = resolve, proj, cache, cached
+        self.s, self.tl_fps, self.rep = s, tl_fps, rep
+
+    def __call__(self, wanted: list, step: str) -> int:
+        """wanted: [(item, frames)]. Returns how many frames were rendered (the timeline must then be refetched:
+        Resolve invalidates timeline and item objects when a timeline is deleted, seen in Resolve 21)."""
+        todo: dict[tuple, sampling.Request] = {}
+        for it, frames in wanted:
+            have = self.cached.setdefault(it.path, self.cache.load(it.path))
+            for f in frames:
+                if f not in have and (it.path, f) not in todo:
+                    todo[(it.path, f)] = sampling.Request((it.path, f), it.mpi, f, sampling.span_for(it.fps, self.tl_fps))
+        if not todo:
+            return 0
+        clips = len({k[0] for k in todo})
+        self.rep.detail(step, f"rendering {len(todo)} frames of {clips} clips")
+        rendered = sampling.render(self.resolve, self.proj, list(todo.values()), self.s["analysis_width"],
+                                   progress=lambda pct: self.rep.detail(step, f"rendering {len(todo)} frames · {pct} %"),
+                                   restore_preset=_master_preset(self.proj))
+        by_path: dict[str, dict[int, np.ndarray]] = {}
+        for (path, f), thumb in rendered.items():
+            by_path.setdefault(path, {})[f] = thumb
+        for path, frames in by_path.items():
+            self.cache.save(path, frames)
+            self.cached[path].update(frames)
+        return len(rendered)
+
+    def thumbs(self, it, frames: list[int]) -> list[np.ndarray]:
+        """DaVinci Intermediate thumbnails (the group's input LUT applied) of cached frames."""
+        have = self.cached.get(it.path, {})
+        return [p.apply_lut(sampling.to_float(have[f]), it.luts[0]) for f in frames if f in have]
+
 
 def _refresh(proj, name: str, items: list) -> object:
     """The timeline and its items as fresh API objects (after a scratch timeline was deleted)."""
@@ -263,6 +324,9 @@ def _record(proj, timeline, items: list[Item], s: dict, dry_run: bool, recompute
             "timeline_start": it.timeline_start, "source_start": it.start, "source_frames": it.duration,
             "clip_fps": it.fps, "luts": [str(x) if x else "" for x in it.luts],
             "frames": it.frames, "meta": vars(it.meta),
+            "keyframes": it.keyframes.to_dict() if it.keyframes else None,
+            "samples_over_time": [{"frame": f, "stops": sm.get("exposure_stops"), "cct": sm.get("cct")}
+                                  for f, sm in zip(it.all_frames, it.all_samples)],
             "measurement": it.measurement.to_dict() if it.measurement else None,
             "correction": shot.correction.to_dict() if shot else None,
             "scene": shot.scene if shot else None, "hero": shot.hero if shot else False,
@@ -289,6 +353,7 @@ def rows(record: dict) -> list[dict]:
             "flags": corr.get("flags", []), "skipped": outcome.get("skipped", ""),
             "written": bool(outcome.get("written")), "marker": outcome.get("marker", ""),
             "ev100": meas.get("ev100"),
+            "keyframes": len((e.get("keyframes") or {}).get("frames", [])) if outcome.get("keyframes") else 0,
         })
     return sorted(out, key=lambda r: (not (r["marker"] or r["skipped"]), r["confidence"] if r["confidence"]
                                       is not None else -1, r["timeline_start"]))

@@ -54,6 +54,12 @@ DEFAULTS: dict = {
         "wb_spread_free": 6.0, "wb_spread_per_degree": 0.06,
         "wb_disagree_free": 2.0, "wb_disagree_per_degree": 0.08, "achromatic": 0.4, "dominant": 0.4, "mixed_light": 0.3, "haze": 0.3,
     },
+    "dynamic": {
+        "enabled": True, "min_change_stops": 1.0, "min_change_mired": 30, "min_wb_confidence": 0.6,
+        "dead_stops": 0.5, "dead_mired": 15, "follow": 0.75, "wb_follow": 0.8,
+        "refine_step_stops": 0.4, "refine_step_mired": 20, "refine_frames": 6, "refine_passes": 2,
+        "tolerance_stops": 0.05, "max_keyframes": 16,
+    },
     "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3, "pull_fixed_wb": 0.7},
     "learning": {"rate": 0.5, "max_exposure": 1.0, "max_kelvin": 1500, "max_black": 0.03, "chroma": [0.7, 1.4]},
 }
