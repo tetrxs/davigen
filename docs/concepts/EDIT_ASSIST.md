@@ -1,6 +1,6 @@
 # Concept: Edit Assist
 
-**Status:** in progress (2026-09-28).
+**Status:** built and tested against a fake Resolve; tuned on the MARSEILLE_2026 footage (2026-09-28). The check in Resolve is open.
 
 davigen already turns a card of footage into an organised, colour-managed project with a first grade. Edit Assist
 takes the next step: it watches every clip once so the editor doesn't have to, and hands over **selects** and a
@@ -49,7 +49,9 @@ All of this is cached per clip (`03_WORK/ANALYSIS/edit/`), so re-running with ot
 ## 3. Selects
 
 Per frame a **usability score** from 0 to 1 combines sharpness, shake and exposure; unusable frames (black,
-covered, extreme blur) are 0. Then:
+covered, extreme blur) are 0. Sharpness counts **relative to the same shot a few seconds around** (±5 s): texture
+differs so much between scenes that an absolute or whole-clip scale calls a calm sea "blurred" next to a sunlit
+cliff in the same drone flight. Blur is a dip against its neighbours. Then:
 
 1. The score is smoothed over 1 second.
 2. **Unusable** stretches: score below 0.2 for at least 1 s → red marker spanning them.
@@ -93,3 +95,12 @@ All thresholds are in `[edit_assist]` in `config/workflow.toml`. ffmpeg is neede
 found automatically); without it Edit Assist says so and does nothing. Limits: no face or object recognition, no
 transcription yet (a later step could use Whisper), and the rough cut doesn't judge content, only craft (sharp,
 steady, well exposed, varied).
+
+## 8. Tuning on real footage
+
+`scripts/edit_offline.py` on MARSEILLE_2026 (57 clips, 35 min: walking, car windows, drone, beach). The first
+version called 13.4 min unusable, much of it good drone footage and mirror shots with a soft background, because
+sharpness was judged against each clip's sharpest 10 %. Judged against ±5 s of the same shot: 22.7 min good,
+4.6 min unusable (the camera pointing at the sand while walking, pocket shots, whip pans), 2.4 min speech. The
+drone flights are good apart from take-off and landing. Watching took about a third of the footage's running time
+(hardware decoding, two clips at a time).
