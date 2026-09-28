@@ -108,22 +108,36 @@ and down for 16:9 and plenty of room left and right for 9:16.
    Project Settings → Master Settings → Working Folders → *Proxy generation location*. Resolve doesn't keep this
    path when a script sets it. Playback → **Proxy Handling → Prefer Proxies** keeps 6K open gate smooth on a
    laptop.
-2. **Pick your shots on the assembly timeline:**
-   1. Open `TL_01_ASSEMBLY` and play through it.
+2. **Let davigen watch the footage first (Edit assist):** on the home screen press **Selects**. davigen
+   watches every clip once (about three times faster than real time) and marks it in the Media Pool:
+
+   | Marker | Means |
+   |---|---|
+   | green `davigen: good 0.82` | a steady, sharp, well exposed stretch; the number rates it |
+   | red `davigen: blurred` / `shaking` / `dark / covered` / `whip pan` | skip this |
+   | blue `davigen: speech` | someone talks: an A-roll candidate |
+
+   It also builds `TL_00_SELECTS_AUTO_…` in `03_TIMELINES/01_ASSEMBLY`: the good stretches (their calmest six
+   seconds) in shooting order, a fast way to see the whole trip. **Rough cut to music…** asks for a song, marks its
+   bars and sections, and builds `TL_02_EDIT_AUTO_…`: the best stretches in shooting order, cut on the bar, two
+   bars per shot in calm parts and one in energetic ones, the song on A1. Every run makes a new version and
+   replaces only davigen's own markers. Needs ffmpeg (`brew install ffmpeg`).
+3. **Pick your shots on the assembly timeline:**
+   1. Open `TL_01_ASSEMBLY` (or the selects timeline) and play through it.
    2. Mark good moments with **I**/**O** and **F9** (insert) into your selects, or flag and color them.
 
    Put the picks into `02_SELECTS`.
-3. **Cut:** build the film on `TL_02_EDIT`, story first, on V1 `MAIN`.
-4. **Picture lock:**
+4. **Cut:** build the film on `TL_02_EDIT` (or start from the rough cut), story first, on V1 `MAIN`.
+5. **Picture lock:**
    1. Duplicate the edit (right-click → *Duplicate Timeline*).
    2. Rename the copy to `TL_03_MASTER_…` and move it into `03_TIMELINES/03_MASTER`.
 
    Alternatively, copy everything into the empty master timeline davigen made.
-5. **Run *Assign groups & nodes*** in davigen. Resolve stores color groups and grades **per timeline clip**, so
+6. **Run *Assign groups & nodes*** in davigen. Resolve stores color groups and grades **per timeline clip**, so
    clips in a timeline you built yourself start out ungraded. This puts every clip in its camera group and gives
    each clip the six-node structure. It never touches clips you already graded.
-6. **Grade** on the master timeline (see below).
-7. **Deliver** (see below).
+7. **Grade** on the master timeline (see below).
+8. **Deliver** (see below).
 
 ## 5. Grading
 
