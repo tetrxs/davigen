@@ -1,6 +1,6 @@
 # Concept: Basic Correction
 
-**Status:** concept, nothing built yet. The step-by-step plan is in
+**Status:** concept; the API spike (step 01) is done, see §12. The step-by-step plan is in
 [docs/plans/basic-correction/](../plans/basic-correction/00_OVERVIEW.md).
 
 Basic Correction fills the technical nodes of every clip grade (`01_EXPOSURE`, `02_WHITE_BALANCE`,
@@ -19,7 +19,7 @@ instead of guessing.
 - [9. How the user runs it](#9-how-the-user-runs-it)
 - [10. Configuration](#10-configuration)
 - [11. How we know it works](#11-how-we-know-it-works)
-- [12. Open questions](#12-open-questions)
+- [12. Answers from the API spike](#12-answers-from-the-api-spike)
 
 ---
 
@@ -82,7 +82,7 @@ The API writes grades as ASC CDL per node (`TimelineItem.SetCDL`):
 
 ```
 out = (in · slope + offset) ^ power             per channel
-out = luma + sat · (out − luma)                 luma with Rec.709 weights
+out = luma + sat · (out − luma)                 luma weights (0.21, 0.70, 0.09), measured in step 01
 ```
 
 In a log space this maps cleanly onto what a colorist does by hand:
@@ -95,8 +95,9 @@ In a log space this maps cleanly onto what a colorist does by hand:
 | saturation | sat | used as it is |
 | power | stays 1.0 | a gamma on log data has no clean meaning |
 
-The values land in the node's primaries and stay editable. Nothing is baked in. How Resolve shows CDL values on
-its wheels is checked in step 01 of the plan.
+The values land in the node's primaries and stay editable. Nothing is baked in. Resolve applies them directly to the
+values that enter the node, with no colour management in between, and shows them on its Lift and Gain wheels rather
+than on Offset (verified in step 01, see §12).
 
 **Limit:** per-channel gains are a good white balance for moderate errors. For large ones (tungsten light shot with
 a daylight setting) Resolve's Chromatic Adaptation is cleaner. Such clips get a flag and only a partial correction.
@@ -110,9 +111,9 @@ The API can't read pixels, so Resolve renders them itself:
    per clip, spread over the part of the clip that is actually used.
 2. The snippets carry no group and no grade. In davigen's DaVinci YRGB project, the render then outputs the camera
    log values untouched.
-3. davigen renders the timeline at a small size, about 480 px wide, as a 16-bit TIFF sequence, then deletes the
-   timeline.
-4. Python reads the TIFFs (`tifffile`, pure Python), applies the clip's own input LUT (`colour.LUT3D`), and gets
+3. davigen renders the timeline at a small size, about 480 px wide, as an uncompressed 16-bit TIFF sequence
+   (`tif` / `RGB16`), then deletes the timeline. In step 01 this took 0.1 s per frame for 6K HEVC.
+4. Python reads the TIFFs (a small reader for uncompressed TIFF, as in the spike, so no new dependency), applies the clip's own input LUT (`colour.LUT3D`), and gets
    DWG/Intermediate exactly as Group Pre-Clip produces it.
 5. Per sample it keeps a small float16 thumbnail (about 96 × 64 px) plus statistics in
    `03_WORK/ANALYSIS/<clip>.npz`, then deletes the TIFFs. Algorithms can be retuned later without rendering again.
@@ -122,8 +123,8 @@ pipeline exactly, and nothing extra needs to be installed.
 
 **Which frames:**
 
-- On a timeline, samples lie inside each item's used source range, if the API exposes it (`GetSourceStartFrame` /
-  `GetSourceEndFrame`, checked in step 01).
+- On a timeline, samples lie inside each item's used source range: `GetSourceStartFrame()` up to
+  `GetSourceStartFrame() + GetDuration()` (see §12 for why not `GetSourceEndFrame`).
 - The default is 5 samples per item, plus 1 per extra 4 s of used duration, 12 at most.
 - The cache is per media clip and frame, so the same clip on several timelines is measured once.
 
@@ -286,14 +287,18 @@ The report lists every clip with its values, confidence and flags. A click jumps
   - It has the node structure, and the nodes are found by label, not by position.
 - **Its own grade version:** the correction goes into a local version called `DAVIGEN_AUTO` (`AddVersion`,
   `LoadVersionByName`).
-  - The user's own version is never changed.
+  - `AddVersion` copies the current grade and makes the copy active (§12). So `DAVIGEN_AUTO` starts as the user's
+    grade, with the node structure and everything in `05` and `06`, and only 01–04 are then overwritten.
+  - The name of the version it was copied from is stored in the record, so davigen can switch back to it.
+  - The user's own version is never changed (checked on the pixels in step 01).
   - Switching between the two versions on the Color page is a quick before/after.
   - This matters because script changes can't be undone in one step.
 - **Only nodes 01–04** are written. `05_SECONDARIES` and `06_FINISH` are never touched.
 - **Running again:**
   - By default only clips that don't have `DAVIGEN_AUTO` yet are corrected.
   - "Recompute all" overwrites existing `DAVIGEN_AUTO` versions and says so first, because tweaks made inside that
-    version are lost.
+    version are lost. It loads `DAVIGEN_AUTO` and writes 01–04 again, so `05`/`06` inside it stay as they were
+    copied the first time.
   - Old `davigen-basic` markers are removed and set again.
 - **Dry run:** measure and flag only, without writing any grades. Good for building trust.
 - **Record:** all measurements and written values go to
@@ -348,14 +353,62 @@ We don't guess. We measure against grades the user already made by hand:
    - most of the large misses flagged
 5. The thresholds in §10 are tuned on this set, so it keeps its value as a regression test.
 
-## 12. Open questions
+## 12. Answers from the API spike
 
-To be answered by step 01 of the plan, in Resolve itself:
+Step 01 ran on 2026-09-28 in Resolve 21.0.0.48 **Free**, from Workspace → Scripts, on a 6K V-Log HEVC clip
+(Lumix S1II, 5952×3968, 25 fps) in a davigen project (DaVinci YRGB, timeline DWG/Intermediate). Everything below is
+tested there unless it says *untested*.
 
-- Does `SetCDL` work from Workspace → Scripts in Resolve Free? How do the values show up on the wheels (Offset /
-  Gain / Gamma / Sat), and in which space does Resolve apply them?
-- Does `AddVersion` start from the current grade or empty? Does the node structure carry over?
-- Are `GetSourceStartFrame` / `GetSourceEndFrame` available? Is the end frame inclusive?
-- Do single-frame snippets via `AppendToTimeline` work, and how fast does an analysis render of 6K HEVC go?
-- Does the TIFF render hold the source code values unchanged (data levels, no colour management)?
-- Do timeline-item markers support custom data and deletion by custom data?
+**`SetCDL`**
+
+- Works in Free, from the Edit page too (no page switch needed), on node 1 and on node 2. Returns `True`.
+- On the pixels it is exact ASC CDL on the values entering the node: offset +0.07329 added exactly 0.07329 to every
+  channel (std 1e-5), slope 1.2 multiplied by exactly 1.2. There is no colour management and no scaling in between.
+- Saturation is a mix with a luma, `out = luma + sat · (in − luma)`, but the fitted luma weights are
+  **(0.21, 0.70, 0.09)**, not Rec.709 (0.2126, 0.7152, 0.0722). The fit is tight (rms 7e-6 vs 4e-4 with Rec.709) but
+  the frame had little colour; step 03 rechecks it on a colourful frame.
+- On the wheels (Primaries → Color Wheels):
+
+  | CDL written | Resolve shows |
+  |---|---|
+  | offset +0.0733 | Lift +0.03, Gain 1.08 (R, G, B), Offset wheel unchanged at 25.00 |
+  | offset −0.0733 | Lift −0.04, Gain 0.93 |
+  | slope 1.2 | Gain 1.20 |
+  | sat 0.5 | Saturation 25.00 (display scale 50 = 1.0) |
+  | any | **Lum Mix is set to 0.00** (a fresh node has 100.00) |
+
+  So the values stay editable, but exposure shows up on Lift and Gain, not on Offset.
+- *Untested:* power, and whether `SetCDL` resets other primaries in the node (Contrast, Pivot, Temp, Tint).
+
+**Versions**
+
+- `AddVersion("DAVIGEN_AUTO", 0)` creates a **copy of the current grade** (all six labelled nodes and their values)
+  and **makes it the active version** right away.
+- `GetVersionNameList(0)`, `GetCurrentVersion()` and `LoadVersionByName(name, 0)` work. The default local version is
+  called `Version 1`.
+- Writing into `DAVIGEN_AUTO` leaves the other version untouched: on the pixels, the user version still rendered its
+  own +1 stop after `DAVIGEN_AUTO` had been set to −1 stop, and the item left on `DAVIGEN_AUTO` rendered −1 stop.
+- *Untested:* `DeleteVersionByName`.
+
+**Source range and snippets**
+
+- `GetSourceStartFrame`, `GetSourceEndFrame`, `GetLeftOffset`, `GetRightOffset` exist. For a whole 348-frame clip
+  they gave 0 / 347, so the end looks inclusive.
+- `AppendToTimeline` with `startFrame` / `endFrame`: **the end is exclusive**. `(f, f)` fails and returns nothing,
+  `(f, f + 1)` gives a 1-frame item showing exactly source frame *f* (0-based, checked against ffmpeg).
+- The 1-frame item then reports `GetSourceEndFrame() = f + 1`, which contradicts the inclusive reading above. Until
+  that is understood, davigen uses `GetSourceStartFrame()` and `GetDuration()` only.
+
+**Render**
+
+- TIFF codecs in Free: `RGB16`, `RGB8`, `XYZ16`. `RGB16` is uncompressed, so no extra library is needed to read it.
+- `FormatWidth` / `FormatHeight` of 480 × 320 are accepted for a 3240 × 2160 timeline.
+- 27 frames of 6K HEVC, each from a different place in the clip: 2.7 s, **0.1 s per frame**.
+- The TIFF holds the camera code values unchanged: it matches ffmpeg's full-range decode of the same frame within
+  0.001 on average (the clip is tagged full range). No data-level or colour conversion.
+- The render settings on the Deliver page stay changed afterwards (the API can't read them back). The job is removed.
+
+**Markers**
+
+- `TimelineItem.AddMarker(frame, color, name, note, duration, customData)` takes custom data;
+  `GetMarkerByCustomData` and `DeleteMarkerByCustomData` work, and a marker without custom data survives the delete.

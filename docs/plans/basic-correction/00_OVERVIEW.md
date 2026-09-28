@@ -5,7 +5,7 @@ reviewable change. Each one ends with tests or a check in Resolve, and leaves da
 
 | # | Step | Needs Resolve | Depends on | Status |
 |---|---|---|---|---|
-| 01 | [API spike in Resolve](01_SPIKE.md) | yes | – | script ready, waiting for a run |
+| 01 | [API spike in Resolve](01_SPIKE.md) | yes | – | done 2026-09-28: `SetCDL` works in Free |
 | 02 | [Pipeline simulator](02_PIPELINE.md) | no | – | open |
 | 03 | [Frame sampling and cache](03_SAMPLING.md) | yes | 01 | open |
 | 04 | [Measurements](04_MEASUREMENTS.md) | no | 02 | open |
@@ -16,8 +16,7 @@ reviewable change. Each one ends with tests or a check in Resolve, and leaves da
 | 09 | [Evaluation and tuning](09_EVALUATION.md) | yes | 08 | open |
 
 Steps 02, 04, 05 and 06 are pure Python with numpy and colour-science. They can be built and tested without
-Resolve while step 01 is still waiting. Step 01 decides the details of 03 and 07. If the spike shows that
-`SetCDL` doesn't work in Free, the plan stops there and gets revised.
+Resolve. Step 01 decided the details of 03 and 07; its answers are in §12 of the concept.
 
 **New module layout** (all under `davigen/basic/`, so the feature stays in one place):
 
@@ -33,4 +32,5 @@ davigen/basic/
 └── run.py           the flow used by the UI and the menu entry                                 (08)
 ```
 
-**New dependency:** `tifffile` (pure Python, needs only numpy) in `requirements.txt`, added in step 03.
+**No new dependency:** Resolve renders uncompressed 16-bit TIFF (step 01), which a small reader in `sampling.py`
+handles. `tifffile` would only be needed if that changes; it is not added without asking.

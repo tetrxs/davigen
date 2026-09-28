@@ -13,8 +13,9 @@ the working space and check targets in the display image.
    - `stops_to_offset(s)` and `gain_to_offset(g)`
 2. **LUT application:** `apply_lut(image, cube_path)` with `colour.read_LUT` and `LUT3D.apply`, trilinear
    (Resolve's default). LUTs read once and cached per path.
-3. **CDL model:** `apply_cdl(image, slope, offset, power, sat)`, exactly as ASC CDL (see concept §3). Step 01 may
-   show that Resolve deviates, for example in clamping or luma weights; adjust here if so.
+3. **CDL model:** `apply_cdl(image, slope, offset, power, sat)`, as ASC CDL (see concept §3). Step 01 measured
+   slope and offset as exact, and saturation mixing with luma weights (0.21, 0.70, 0.09) instead of Rec.709. Use
+   those as a module constant `SAT_LUMA`, so step 03 can correct them after its recheck.
 4. **Chain:** `simulate(log_image, input_lut, nodes, output_lut)` gives `(dwg_after_nodes, display)`. Here `nodes` is
    a list of CDL dicts for 01–04, in order.
 5. **Display helpers:** luminance (Rec.709 weights on the display image), CIELAB conversion, IRE scale
