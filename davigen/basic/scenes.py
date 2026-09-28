@@ -120,6 +120,8 @@ def _pull(shot: Shot, hero: Shot, pull: float, fixed_pull: float | None, thresho
         else:
             weight = pull
         stops = v["exposure_stops"] + weight * (ref_after - own_after)
+        lo, hi = v.get("exposure_range", [-99.0, 99.0])       # the shot's own limits still hold
+        stops = min(max(stops, min(lo, v["exposure_stops"])), max(hi, v["exposure_stops"]))
         if abs(stops - v["exposure_stops"]) > 1e-6:
             corr.nodes[c.EXPOSURE] = c.exposure_cdl(m, stops)
             shot.notes["exposure_pulled"] = stops - v["exposure_stops"]

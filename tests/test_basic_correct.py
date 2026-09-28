@@ -172,3 +172,14 @@ def test_lut_ceiling_does_not_make_a_sunny_frame_dark(out_lut):
     corr = c.correct(meas, [frame], out_lut, S)
     assert meas.clipped_fraction > 0.4 and meas.exposure_stops > 0.5
     assert corr.values["exposure_stops"] <= 0.0                # never brightened
+
+
+def test_brightening_stops_where_highlights_run_out(out_lut):
+    """A dark sea under bright rocks (DJI, step 05 calibration): the key says brighten, the highlights say no."""
+    rng = np.random.default_rng(9)
+    sea = np.kron(0.18 * 2 ** -1.5 * np.exp(rng.normal(0, 0.3, (8, 12, 1))) * [0.4, 0.8, 1.3], np.ones((8, 8, 1)))
+    rock = np.exp(rng.normal(0, 0.15, (12, 96, 1)))                     # texture: rock isn't a clipped plateau
+    sea[:12] = 0.18 * 2 ** 3.2 * rock * np.array([1.0, 0.97, 0.9])     # sunlit rock, already near display white
+    meas, corr = run([sea], out_lut)
+    assert meas.exposure_stops < -0.3
+    assert corr.values["exposure_stops"] < 0.5 and "held by highlights" in corr.values["exposure_reason"]

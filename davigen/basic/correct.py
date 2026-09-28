@@ -52,13 +52,14 @@ def correct(m: ms.Measurement, samples: list, output_lut: str | Path, settings: 
     wb_cdl, wb_conf, wb_limited = _white_balance(m, settings, values, exp_cdl)
     con_cdl, con_conf, con_limited = _contrast(m, sim, [exp_cdl, wb_cdl], settings, values)
     sat_cdl, sat_conf, sat_limited = _saturation(m, sim, [exp_cdl, wb_cdl, con_cdl], settings, values)
-    if exp_limited or wb_limited or con_limited or sat_limited:
+    if exp_limited or wb_limited:           # contrast and saturation at their range are normal, not a doubt
         flags.append(LIMIT)
+    values.update(contrast_limited=bool(con_limited), saturation_limited=bool(sat_limited))
     confidence = {
         EXPOSURE: _clamp(exp_conf - conf["limit"] * exp_limited),
         WHITE_BALANCE: _clamp(wb_conf - conf["limit"] * wb_limited),
-        CONTRAST: _clamp(con_conf - conf["limit"] * con_limited),
-        SATURATION: _clamp(sat_conf - conf["limit"] * sat_limited),
+        CONTRAST: _clamp(con_conf),
+        SATURATION: _clamp(sat_conf),
     }
     nodes = {EXPOSURE: exp_cdl, WHITE_BALANCE: wb_cdl, CONTRAST: con_cdl, SATURATION: sat_cdl}
     return Correction(nodes=nodes, confidence=confidence, flags=flags, values=values)
@@ -165,6 +166,17 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
     # log footage exposed to the right can come down a long way; lifting underexposure lifts noise
     limited = not (-ex["max_stops_down"] <= stops <= ex["max_stops_up"])
     stops = max(-ex["max_stops_down"], min(ex["max_stops_up"], stops))
+
+    # brighten only while the highlights have room: a dark sea under bright rocks stays a dark sea
+    ceiling = ex["max_stops_up"]
+    if stops > 0:
+        white_cap = max(settings["contrast"]["white_max"], sim.luma_percentiles([])[1])
+
+        def white(st):
+            return sim.luma_percentiles([exposure_cdl(m, st)])[1]
+        if white(stops) > white_cap:
+            ceiling = max(0.0, _bisect(white, white_cap, 0.0, stops))
+            stops, reason = ceiling, reason + ", held by highlights"
     key_di = float(p.to_log(0.18 * 2.0 ** key))
     offset = exposure_cdl(m, stops).offset[0]
 
@@ -177,7 +189,12 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
             if offset < allowed:
                 offset, reason = allowed, reason + ", held by clipped highlights"
                 stops = _offset_to_stops(key_di, offset)
-    values.update(exposure_stops=stops, exposure_target=target, exposure_reason=reason, exposure_key=key)
+    # the range scene matching may move this shot in (scenes.py), with the same limits
+    floor = -ex["max_stops_down"]
+    if "held by clipped" in reason:
+        floor = stops
+    values.update(exposure_stops=stops, exposure_target=target, exposure_reason=reason, exposure_key=key,
+                  exposure_range=[floor, ceiling])
     return p.Cdl(offset=(offset, offset, offset)), _clamp(confidence), limited
 
 

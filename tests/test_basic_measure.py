@@ -119,9 +119,9 @@ def test_flat_frame_is_haze(out_lut):
 
 
 def test_exposure_change_within_clip(out_lut):
-    a, b = neutral_scene(key=0.09), neutral_scene(key=0.09) * 8.0          # three stops apart
+    a, b = neutral_scene(key=0.045), neutral_scene(key=0.045) * 16.0       # four stops apart
     r = m.measure([di(a), di(b)], m.ClipMeta(), out_lut, S)
-    assert r.exposure_spread == pytest.approx(3.0, abs=0.05)
+    assert r.exposure_spread == pytest.approx(4.0, abs=0.05)
     assert m.CHANGES in r.flags
     same = m.measure([di(a), di(a)], m.ClipMeta(), out_lut, S)
     assert m.CHANGES not in same.flags

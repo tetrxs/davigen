@@ -37,7 +37,7 @@ DEFAULTS: dict = {
     },
     "flags": {
         "clipped": 0.03, "wb_spread": 12.0, "achromatic_min": 0.01, "dominant": 0.5, "mixed_light": 14.0,
-        "exposure_spread": 2.5, "mired_spread": 60, "night_ev": 5.0,
+        "exposure_spread": 3.3, "mired_spread": 150, "night_ev": 5.0,
     },
     "exposure": {
         "max_stops_down": 3.0, "max_stops_up": 1.5, "clipped_white": 0.9, "skin_ire": [60, 70],

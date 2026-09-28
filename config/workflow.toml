@@ -211,8 +211,8 @@ wb_spread = 12.0                    # "no neutral surfaces": estimators disagree
 achromatic_min = 0.01               # … or fewer achromatic pixels than this
 dominant = 0.5                      # "dominant colour"
 mixed_light = 14.0                  # "mixed light": halves of the frame disagree by more than this
-exposure_spread = 2.5               # "changes within clip", in stops (hand-held walks and pans vary a lot) …
-mired_spread = 60                   # … or in mired (10⁶/K; 60 ≈ 5000 → 7000 K)
+exposure_spread = 3.3               # "changes within clip", in stops (hand-held walks and pans vary a lot) …
+mired_spread = 150                  # … or in mired (10⁶/K; 150 ≈ 4000 → 10000 K, i.e. sun to shade and sky)
 night_ev = 5.0                      # EV100 below this is night
 
 # Corrections per node (plan step 05). Stops relative to 18 % grey, display values 0–1.
