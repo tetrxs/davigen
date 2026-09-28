@@ -191,6 +191,16 @@ function renderCurrent(c) {
         <button class="link" id="m-basic-report">Last report</button>
         <button class="link" id="m-basic-eval" title="Render your own version and DAVIGEN_AUTO at the same frames and measure how far apart they are">Compare with my grade</button>
       </div>
+    </div>
+    <div class="basic">
+      <div class="basic-text"><b>Edit assist</b>
+        <small>Watches every clip once: green markers on good stretches, red on unusable ones (pocket, blur, shake),
+        blue where someone speaks, and a selects timeline <span class="mono">TL_00_SELECTS_AUTO</span>. With music it
+        also builds a first rough cut, <span class="mono">TL_02_EDIT_AUTO</span>, cut on the beat.</small></div>
+      <div class="row gap wrap">
+        <button class="secondary" id="m-selects">Selects</button>
+        <button class="primary" id="m-roughcut">Rough cut to music…</button>
+      </div>
     </div>`;
 }
 
@@ -212,6 +222,8 @@ $("#current").addEventListener("click", async (e) => {
   if (flow) return runFlow(...MAINTENANCE[flow.dataset.flow]);
   if (e.target.closest("#m-basic")) return startBasic({ dry_run: $("#b-dry").checked, recompute: $("#b-re").checked });
   if (e.target.closest("#m-basic-report")) return showBasicReport();
+  if (e.target.closest("#m-selects")) return runFlow("/api/edit", "Edit assist · selects", {});
+  if (e.target.closest("#m-roughcut")) return runFlow("/api/edit", "Edit assist · rough cut", { pick_music: true });
   if (e.target.closest("#m-basic-eval")) { evalRun = true; return runFlow("/api/basic/evaluate", "Basic correction vs your grade", {}); }
   if (e.target.closest("#m-add")) {
     state.mode = "add";

@@ -164,6 +164,22 @@ class App:
                    "timeline": body.get("timeline", "")}
         return self._start(basic.STEPS, basic.flow, options)
 
+    def start_edit(self, body: dict) -> dict:
+        """Edit Assist; with pick_music the user chooses a music file for the rough cut first."""
+        from .edit import decode, run as edit  # noqa: PLC0415
+        if not decode.available():
+            return {"ok": False, "error": "Edit Assist needs ffmpeg: install it with 'brew install ffmpeg' "
+                                          "(https://brew.sh), then try again"}
+        music = ""
+        if body.get("pick_music"):
+            res = subprocess.run(["osascript", "-e", 'POSIX path of (choose file with prompt "Music for the rough '
+                                  'cut" of type {"public.audio"})'], capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace")
+            music = res.stdout.strip()
+            if res.returncode != 0 or not music:
+                return {"ok": False, "error": "No music chosen"}
+        return self._start(edit.STEPS, edit.flow, {"music": music})
+
     def start_evaluate(self, body: dict) -> dict:
         from .basic import run as basic  # noqa: PLC0415
         return self._start(basic.EVALUATE_STEPS, basic.evaluate_flow, {"user_version": body.get("user_version", "")})
@@ -384,6 +400,7 @@ def make_handler(app: App):
         "/api/basic": app.start_basic,
         "/api/basic/goto": app.basic_goto,
         "/api/basic/evaluate": app.start_evaluate,
+        "/api/edit": app.start_edit,
         "/api/basic/learn": app.basic_learn,
         "/api/open-project": app.open_project,
         "/api/reveal": app.reveal,

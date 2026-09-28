@@ -65,6 +65,17 @@ class Group:
 class MediaPoolItem:
     def __init__(self, path, group, frames, log_frame, fps=25.0):
         self.path, self.group, self.frames, self.log_frame, self.fps = path, group, frames, log_frame, fps
+        self.markers: dict[int, dict] = {}
+
+    def AddMarker(self, frame, colour, name, note, duration, data=""):
+        if frame in self.markers:
+            return False
+        self.markers[frame] = {"color": colour, "name": name, "note": note, "duration": duration, "customData": data}
+        return True
+
+    def DeleteMarkerByCustomData(self, data):
+        self.markers = {f: m for f, m in self.markers.items() if m["customData"] != data}
+        return True
 
     def GetClipProperty(self, key):
         return {"File Path": self.path, "FPS": str(self.fps), "Frames": str(self.frames)}.get(key, "")
@@ -185,10 +196,57 @@ class Timeline:
         self.timecode = tc
         return True
 
+    def GetStartFrame(self):
+        return 90000
+
+    def place(self, info):
+        """Edit-assist timelines: honour recordFrame, else append after the last item of the same kind."""
+        kind = "audio" if info.get("mediaType") == 2 else "video"
+        length = info["endFrame"] - info["startFrame"]
+        same = [i for i in self.items if getattr(i, "kind", "video") == kind]
+        start = info.get("recordFrame", same[-1].start + same[-1].duration if same else 90000)
+        ti = TimelineItem(info["mediaPoolItem"], start, length, info["startFrame"])
+        ti.kind = kind
+        self.items.append(ti)
+        return ti
+
+
+class Folder:
+    def __init__(self, name, clips=None):
+        self.name, self.clips, self.subs = name, list(clips or []), []
+
+    def GetName(self):
+        return self.name
+
+    def GetClipList(self):
+        return self.clips
+
+    def GetSubFolderList(self):
+        return self.subs
+
 
 class MediaPool:
     def __init__(self, project):
         self.project = project
+        self.root = Folder("Master")
+        self.folder = self.root
+
+    def GetRootFolder(self):
+        return self.root
+
+    def AddSubFolder(self, parent, name):
+        sub = Folder(name)
+        parent.subs.append(sub)
+        return sub
+
+    def SetCurrentFolder(self, folder):
+        self.folder = folder
+        return True
+
+    def ImportMedia(self, paths):
+        items = [MediaPoolItem(p, "", 1000, None) for p in paths]
+        self.folder.clips += items
+        return items
 
     def CreateEmptyTimeline(self, name):
         tl = Timeline(name)
@@ -201,7 +259,12 @@ class MediaPool:
 
     def AppendToTimeline(self, infos):
         out = []
+        tl = self.project.current
         for info in infos:
+            if tl.name.startswith("TL_"):                         # edit-assist timelines
+                ti = tl.place(info)
+                out.append(ti)
+                continue
             span = info["endFrame"] - info["startFrame"]
             assert span >= 1                                        # (f, f) fails in Resolve (step 01)
             fps = info["mediaPoolItem"].fps
@@ -227,6 +290,9 @@ class Project:
 
     def GetSetting(self, key):
         return {"timelineFrameRate": "25"}.get(key, "")
+
+    def SaveProject(self):
+        return True
 
     def GetMediaPool(self):
         return self.mp
