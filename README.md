@@ -270,6 +270,8 @@ It uses the internet only in these cases:
 - **Online sources**, only after you allow them on first start:
   - the camera catalog, from the Wikidata query service and Wikimedia Commons thumbnails
   - manufacturer LUT catalogs, currently DJI's public download center
+- **Transcription** (Edit assist, only when you tick *Transcribe speech*): mlx-whisper from PyPI into davigen's
+  Python, and the Whisper model from Hugging Face, once. Transcribing itself runs on your Mac.
 
 Nothing about your footage or projects leaves your Mac.
 
@@ -328,6 +330,13 @@ Third-party components are downloaded at install time, not redistributed:
 - Python ([python-build-standalone](https://github.com/astral-sh/python-build-standalone), PSF license)
 - [colour-science](https://github.com/colour-science/colour) (BSD-3-Clause)
 - [ExifTool](https://exiftool.org) by Phil Harvey (Perl Artistic License / GPL)
+- for *Transcribe speech* only: [mlx-whisper](https://github.com/ml-explore/mlx-examples) (MIT) and OpenAI's
+  [Whisper](https://github.com/openai/whisper) large-v3-turbo weights (MIT), converted by mlx-community
+- Edit assist uses [ffmpeg](https://ffmpeg.org) if it is installed (e.g. with Homebrew); davigen doesn't ship it
+
+Basic correction's white-balance model (`davigen/basic/models/wb_ccc.npz`) was trained by davigen on the
+[SimpleCube++](https://github.com/Visillect/CubePlusPlus) dataset by Ershov et al. (2020), licensed CC BY 4.0. The
+method is Convolutional Color Constancy (Barron, ICCV 2015).
 
 Camera data comes from Wikidata (CC0), and photos from Wikimedia Commons under their individual licenses.
 Manufacturer LUTs are downloaded from the manufacturer and remain theirs.
