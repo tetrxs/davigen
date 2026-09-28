@@ -106,7 +106,7 @@ def test_night_is_barely_touched(out_lut):
 
 def test_limit_reached(out_lut):
     meas, corr = run([neutral_scene(key=0.18 / 16)], out_lut)             # four stops under
-    assert corr.values["exposure_stops"] == pytest.approx(S["exposure"]["max_stops"])
+    assert corr.values["exposure_stops"] == pytest.approx(S["exposure"]["max_stops_up"])
     assert c.LIMIT in corr.flags and corr.confidence[c.EXPOSURE] < 1.0
 
 
@@ -150,4 +150,25 @@ def test_clipped_sky_is_not_turned_grey(out_lut):
     assert m.CLIPPED in meas.flags
     top = p.apply_nodes(np.full(3, meas.clip_level), [corr.nodes[c.EXPOSURE]])
     white = float(p.luminance(p.apply_lut(top, out_lut)))
-    assert white >= S["contrast"]["white_max"] - 0.01
+    assert white >= S["exposure"]["clipped_white"] - 0.01
+
+
+def test_log_exposed_to_the_right_comes_down(out_lut):
+    """Real Lumix V-Log clips sat 2–3 stops over (step 04 on 57 clips): they must come down more than 1.5 stops."""
+    rng = np.random.default_rng(8)
+    colours = np.kron(rng.uniform(0.25, 1.75, (8, 12, 3)), np.ones((8, 8, 1)))     # a colourful street, not snow
+    scene = neutral_scene(key=0.18 * 2 ** 2.5) * colours
+    meas, corr = run([scene], out_lut)
+    assert not meas.high_key
+    assert corr.values["exposure_stops"] == pytest.approx(-meas.exposure_stops, abs=S["exposure"]["skin_max_nudge"] + 0.05)
+    assert corr.values["exposure_stops"] < -1.5
+
+
+def test_lut_ceiling_does_not_make_a_sunny_frame_dark(out_lut):
+    """A vendor LUT (DJI) squeezes highlights onto a ceiling: that plateau still counts as bright."""
+    frame = di(neutral_scene(key=0.18))
+    frame[:28] = 0.62                                          # 44 % of the frame on the LUT's ceiling
+    meas = m.measure([frame], m.ClipMeta(), out_lut, S)
+    corr = c.correct(meas, [frame], out_lut, S)
+    assert meas.clipped_fraction > 0.4 and meas.exposure_stops > 0.5
+    assert corr.values["exposure_stops"] <= 0.0                # never brightened

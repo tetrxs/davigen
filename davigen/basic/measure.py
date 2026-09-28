@@ -106,6 +106,7 @@ class Measurement:
     cct: float
     duv: float
     cct_spread: float
+    mired_spread: float                 # 10⁶/CCT: even steps for the eye, and sane for blue sky (CCT runs off)
     black_point: float
     white_point: float
     range_stops: float
@@ -154,6 +155,7 @@ def measure(samples: list, meta: ClipMeta, output_lut: str | Path, settings: dic
         illuminant=[float(v) for v in illuminant], wb_spread=med("wb_spread"),
         achromatic_fraction=med("achromatic_fraction"), dominant_fraction=med("dominant_fraction"),
         mixed_light=med("mixed_light"), cct=cct, duv=duv, cct_spread=float(np.ptp([s.cct for s in per])),
+        mired_spread=float(np.ptp([1e6 / max(s.cct, 1000.0) for s in per])),
         black_point=med("black_point"), white_point=med("white_point"), range_stops=med("range_stops"),
         local_contrast=med("local_contrast"), chroma=med("chroma"), haze=False,
         per_sample=[_plain(asdict(s)) for s in per],
@@ -180,7 +182,7 @@ def flags(m: Measurement, ms: dict, fl: dict) -> list[str]:
         out.append(DOMINANT)
     if m.mixed_light > fl["mixed_light"]:
         out.append(MIXED_LIGHT)
-    if m.exposure_spread > fl["exposure_spread"] or m.cct_spread > fl["cct_spread"]:
+    if m.exposure_spread > fl["exposure_spread"] or m.mired_spread > fl["mired_spread"]:
         out.append(CHANGES)
     if m.high_key:
         out.append(HIGH_KEY)
@@ -190,7 +192,8 @@ def flags(m: Measurement, ms: dict, fl: dict) -> list[str]:
         out.append(NIGHT)
     if m.haze:
         out.append(HAZE)
-    if m.skin_hue is not None and abs(_hue_diff(m.skin_hue, ms["skin"]["line"])) > ms["skin"]["max_off"]:
+    if (m.skin_hue is not None and m.skin_fraction >= ms["skin"]["flag_fraction"]
+            and abs(_hue_diff(m.skin_hue, ms["skin"]["line"])) > ms["skin"]["max_off"]):
         out.append(SKIN_OFF)
     return out
 
@@ -232,7 +235,10 @@ def _sample(di: np.ndarray, output_lut, clip_level, ms: dict) -> Sample:
     yy, xx = np.mgrid[0:h, 0:w]
     sigma = ms["centre_sigma"]
     weight = np.exp(-(((xx + 0.5) / w - 0.5) ** 2 + ((yy + 0.5) / h - 0.5) ** 2) / (2 * sigma ** 2))
-    key = math.exp(float((weight * np.log(lum))[valid].sum() / weight[valid].sum()))
+    # clipped pixels count for exposure (they are at least that bright; leaving them out makes a sunny frame
+    # read dark), only near-black ones don't. White balance below leaves clipped pixels out: their colour is wrong.
+    lit = ~black
+    key = math.exp(float((weight * np.log(lum))[lit].sum() / weight[lit].sum()))
     s.exposure_stops = math.log2(key / GREY_LINEAR)
 
     # white balance on the midtones around the frame's key

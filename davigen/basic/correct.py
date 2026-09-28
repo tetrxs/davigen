@@ -144,28 +144,27 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
         reason = "low key"
         confidence -= conf["key"]
 
-    # skin takes priority when there is enough of it (not for high/low key or night)
-    if m.skin_stops is not None and m.skin_ire is not None and reason in ("grey", "dusk / interior"):
+    # skin keeps the frame's key honest: after the key correction it should sit at skin_ire; the key decides,
+    # skin may nudge by up to skin_max_nudge (a beige wall found as "skin" can't run the exposure)
+    if m.skin_stops is not None and reason in ("grey", "dusk / interior"):
         lo, hi = (v / 100.0 for v in ex["skin_ire"])
-        skin_di = float(p.to_log(0.18 * 2.0 ** m.skin_stops))
+        skin_di = float(p.to_log(0.18 * 2.0 ** m.skin_stops)) + exposure_cdl(m, stops).offset[0]
         now = sim.grey_luma(skin_di)
         if now < lo or now > hi:
-            goal = lo if now < lo else hi
-            offset = _bisect(lambda o: sim.grey_luma(skin_di + o), goal, -0.5, 0.5)
-            skin_stops = _offset_to_stops(skin_di, offset)
-        else:
-            skin_stops = 0.0
-        values["exposure_from_skin"] = skin_stops
-        values["exposure_from_key"] = stops
-        if abs(skin_stops - stops) > ex["skin_disagree"]:
-            confidence -= conf["skin_disagree"]
-        stops, reason = skin_stops, "skin"
+            extra = _bisect(lambda o: sim.grey_luma(skin_di + o), lo if now < lo else hi, -1.0, 1.0)
+            nudge = _offset_to_stops(float(p.to_log(0.18 * 2.0 ** (key + stops))), extra)
+            if abs(nudge) > ex["skin_disagree"]:
+                confidence -= conf["skin_disagree"]
+            nudge = max(-ex["skin_max_nudge"], min(ex["skin_max_nudge"], nudge))
+            values["exposure_skin_nudge"] = nudge
+            stops, reason = stops + nudge, reason + ", nudged by skin"
 
     if m.exposure_spread > fl["exposure_spread"]:
         confidence -= conf["changes"]
     stops += settings.get("learned", {}).get("exposure", 0.0)      # the user's taste (concept §13)
-    limited = abs(stops) > ex["max_stops"]
-    stops = max(-ex["max_stops"], min(ex["max_stops"], stops))
+    # log footage exposed to the right can come down a long way; lifting underexposure lifts noise
+    limited = not (-ex["max_stops_down"] <= stops <= ex["max_stops_up"])
+    stops = max(-ex["max_stops_down"], min(ex["max_stops_up"], stops))
     key_di = float(p.to_log(0.18 * 2.0 ** key))
     offset = exposure_cdl(m, stops).offset[0]
 
@@ -173,7 +172,7 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
     if m.clipped_fraction > fl["clipped"]:
         confidence -= conf["clipped"]
         if m.clip_level is not None and offset < 0:
-            white_di = _bisect(sim.grey_luma, settings["contrast"]["white_max"], 0.0, 1.2)
+            white_di = _bisect(sim.grey_luma, ex["clipped_white"], 0.0, 1.2)
             allowed = min(white_di - m.clip_level, 0.0)
             if offset < allowed:
                 offset, reason = allowed, reason + ", held by clipped highlights"
@@ -218,11 +217,12 @@ def _white_balance(m: ms.Measurement, settings: dict, values: dict, exposure: p.
     new_duv = duv - math.copysign(min(abs(duv_error), wb["max_duv"]), duv_error)   # Duv fully, up to max_duv
     cdl, gains = white_balance_cdl(m, exposure, new_cct, new_duv)
 
-    confidence = 1.0 - conf["wb_spread_per_degree"] * m.wb_spread
+    # estimators always disagree a little on real scenes; only what goes beyond wb_spread_free costs confidence
+    confidence = 1.0 - conf["wb_spread_per_degree"] * max(0.0, m.wb_spread - conf["wb_spread_free"])
     confidence -= conf["achromatic"] * (m.achromatic_fraction < fl["achromatic_min"])
     confidence -= conf["dominant"] * (m.dominant_fraction > fl["dominant"])
     confidence -= conf["mixed_light"] * (m.mixed_light > fl["mixed_light"])
-    confidence -= conf["changes"] * (m.cct_spread > fl["cct_spread"])
+    confidence -= conf["changes"] * (m.mired_spread > fl["mired_spread"])
     values.update(cct_before=cct, duv_before=duv, cct_after=float(new_cct), duv_after=float(new_duv),
                   wb_gains=[float(g) for g in gains])
     return cdl, _clamp(confidence), limited
