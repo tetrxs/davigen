@@ -1,6 +1,6 @@
 # Concept: Basic Correction
 
-**Status:** built (steps 01–08 in code, tested against a fake Resolve); the check in Resolve and the tuning on hand-graded clips are open. API answers in §12. The step-by-step plan is in
+**Status:** built and run on a real project (MARSEILLE_2026, 57 clips, Resolve 21 Free). Keyframes for changes within a clip (§14) are built and tested against a fake Resolve; their end-to-end check in Resolve is open. API answers in §12. The step-by-step plan is in
 [docs/plans/basic-correction/](../plans/basic-correction/00_OVERVIEW.md).
 
 Basic Correction fills the technical nodes of every clip grade (`01_EXPOSURE`, `02_WHITE_BALANCE`,
@@ -21,6 +21,7 @@ instead of guessing.
 - [11. How we know it works](#11-how-we-know-it-works)
 - [12. Answers from the API spike](#12-answers-from-the-api-spike)
 - [13. Next: learning](#13-next-learning)
+- [14. Changes within a clip: keyframes](#14-changes-within-a-clip-keyframes)
 
 ---
 
@@ -31,10 +32,10 @@ instead of guessing.
 | Group Pre-Clip (camera log → DWG) | already done by davigen | exact |
 | `01_EXPOSURE` | Offset, in stops | medium to good, with the rules in §5.1 |
 | `02_WHITE_BALANCE` | Offset per channel | medium: fails on scenes without neutral surfaces, must detect that |
-| `03_CONTRAST` | Slope + Offset around middle grey | good |
+| `03_CONTRAST` | Slope + Offset: black point to target, around grey or a higher pivot | good |
 | `04_SATURATION` | CDL saturation | medium; skin tones are checked, never rotated |
 | Matching clips of one scene | yes | good, this saves the most time |
-| Exposure that changes inside a clip | flagged only | keyframes can't be scripted |
+| Exposure or light that changes inside a clip | keyframes on nodes 01–04 (§14) | written as a grade file; verified piece by piece in Resolve, the whole path is *untested* there |
 | `05_SECONDARIES`, `06_FINISH`, looks | no | creative work stays with the user |
 
 Basic Correction never decides what a shot *should* look like. A silhouette, a night street or a sunset stays one.
@@ -155,9 +156,14 @@ through a (variable) ND filter, which the metadata doesn't record: the spike cli
 ISO 640, gives EV100 5.9. So EV100 only counts when the picture agrees: a low EV100 on a bright frame means ND, not
 night. DJI drones write no exposure data at all.
 
+**Target from the highlights:** before the EV100 rules, the key's target moves with the headroom, the stops from
+the key to the 99.5th percentile: −0.64 × (headroom − 2.7), within ±1 stop. This is what the five FiveK experts
+do (§13): a flat, bright scene stays brighter than grey, bright highlights over a darker subject put it lower.
+On MARSEILLE_2026 it darkened most sunny shots with sky slightly (median mid-tone luma 0.52 → 0.49).
+
 | EV100 | Scene | Target |
 |---|---|---|
-| ≥ 10 | daylight | 18 % grey |
+| ≥ 10 | daylight | 18 % grey, or the highlight target above |
 | 5–10 | dusk, interior | lowered step by step, down to −1 stop |
 | < 5 | night | −1.5 stops. Only brightens a clip that is clearly underexposed even for night |
 
@@ -170,7 +176,8 @@ night. DJI drones write no exposure data at all.
 
 Both only get a flag.
 
-**Limit:** ±1.5 stops. Anything beyond that is flagged and clamped.
+**Limit:** 3 stops down (log exposed to the right comes down a long way), 1.5 up (lifting lifts noise). Anything
+beyond that is flagged and clamped.
 
 **Write:** offset = 0.0733 · stops, equal on R, G and B.
 
@@ -218,18 +225,27 @@ luminance is unchanged (exposure already lives in `01`).
 ### 5.3 `03_CONTRAST`
 
 **Measure:** the 0.5th and 99.5th percentiles of luminance **after the simulated output LUT**, so DaVinci tone
-mapping's highlight roll-off is taken into account.
+mapping's toe and highlight roll-off are taken into account. Pixels the camera clipped don't count for the white.
+
+**Why it needs more than a touch:** the output LUT (DWG → Rec.709 with DaVinci tone mapping) has a very soft toe:
+5 stops under grey still come out at 11 % luma, and +5 stops at 94.5 %. Log footage through it looks flat until
+the black point is set, and on MARSEILLE_2026 the first version (contrast at most 1.35, whites held at 95 %) left the
+median clip's black at 15 % luma.
 
 **Correct:**
 
-- Solve for contrast *c* around 0.336, by bisection with the simulator.
-- Targets: black point at 2–4 % display, white point at or below 95 % display.
-- Nothing is pushed into clipping that wasn't clipped in camera.
+- Black point to 2–4 % display: solve contrast *c* around grey (0.336) by bisection with the simulator, so the
+  exposure node's decision stays.
+- The whites may rise into the LUT's soft shoulder, up to 98 %.
+- When the whites still hold the contrast back (a bright sky), a two-point levels fit on the neutral axis moves
+  the pivot up towards the whites: black to its target, white to 98 %, and the mids come down, at most
+  `max_grey_shift` (0.5 stop). Beyond that the black stays higher than its target.
+- Haze gets the full correction (a dehaze), but lowers the confidence.
 
-**Limit:** *c* between 0.85 and 1.35. Flat, soft scenes (fog, haze, backlight flare) have a small dynamic range and
-little local contrast. They are recognised and only get a mild correction plus the flag "haze: intended?".
+**Limit:** *c* between 0.85 and 1.8. After this change the median black on MARSEILLE_2026 went from 15 % to 7 %
+luma (per frame; the clip's median frame hits the target).
 
-**Write:** slope = *c*, offset = 0.336 · (1 − *c*), on R, G and B.
+**Write:** slope = *c*, offset = pivot · (1 − *c*), on R, G and B.
 
 ### 5.4 `04_SATURATION`
 
@@ -263,6 +279,9 @@ the shots of a scene to a hero shot. Basic Correction does the same:
      white balance of the wide shot taken a minute earlier.
 5. **Across cameras:** V-Log and D-Log M clips of one scene are matched like any others. This works because both
    are in DWG already.
+6. **Colourfulness:** node 04 moves each clip's mean chroma half way to the scene's median (`pull_chroma`). Camera
+   LUTs differ: on MARSEILLE_2026 the DJI D-Log M clips came out of the output LUT at C\* 18–25, the Lumix V-Log
+   clips at 7–14. A frame filled by one colour (flag "dominant colour") keeps its own.
 
 ## 7. Confidence and flags
 
@@ -420,6 +439,27 @@ tested there unless it says *untested*.
   `None`. Everything that deletes a scratch timeline now fetches timelines again by name, and items by
   `GetUniqueId()`.
 
+**Keyframes (2026-09-28, grade stills exported from Resolve and crafted ones applied back)**
+
+- The API has no keyframes, and `SetCDL` doesn't write into a node that has them (it returns `True`, the picture
+  doesn't change). A grade file does: `NodeGraph.ApplyGradeFromDRX(path, 2)` takes a `.drx` with keyframes, and
+  the rendered frames follow them exactly (linear ramps between keyframes, the value held outside).
+- The grade is a protobuf in `<Body>` (0x81 + zstd). A node (field 7) has its label in field 6 and its keyframe
+  tracks in field 9; track 1 is the primaries. A track's entries (field 6) are the untimed base value, then one
+  entry per keyframe with its time in field 1. Resolve keyframes every node of a grade together.
+- **Time = 2 × the absolute source frame, in the clip's own frame rate**: verified on a 25 fps clip at two source
+  positions and on a 59.94 fps clip on a 25 fps timeline. Grade mode 1 and 2 both place them there.
+- Parameters are `{1: id, 2: {1: float}}` and **must be sorted by id**, or Resolve ignores them. Offset R/G/B are
+  100663421–423; one unit moves a DaVinci Intermediate code value by 0.18328 (measured, all three channels).
+  Contrast 2248147137 and pivot 2248147136 are linear on the code values: out = pivot + c · (in − pivot), exactly.
+  Saturation is 100663301, Lum Mix 2248146955 (davigen writes 0, as `SetCDL` does).
+- A still exported after `SetCDL` carries its values as Lift/Gain (100663320–327); the template
+  (`templates/drx/KEYFRAME_BASE.drx`) was cleaned of them, or they would add up with the crafted offsets.
+- `ApplyGradeFromDRX` makes the item's node-graph object stale; fetch it again with `GetNodeGraph()`.
+- *Untested* end to end: davigen's writer (`drx.make_keyframe_drx`, `write._write_keyframes`) on a real timeline,
+  and the pixels of contrast and saturation keyframes against `SetCDL` (`dev_kf_verify` is ready for the next
+  session in Resolve).
+
 **Markers**
 
 - `TimelineItem.AddMarker(frame, color, name, note, duration, customData)` takes custom data;
@@ -441,8 +481,53 @@ Learning can make it better in three steps, cheapest first:
    is a small histogram-based model that runs in plain numpy in milliseconds and is far more accurate than grey
    world. It would become a fifth estimator next to the four in §5.2, trained in linear DWG. Downloading the
    datasets (several GB) needs the user's go-ahead.
-3. **A learned first grade.** MIT-Adobe FiveK (5,000 raw photos, each retouched by five experts) is the standard
+3. **Targets from experts (done for exposure, 2026-09-28).** MIT-Adobe FiveK (5,000 raws, five experts, the
+   Lightroom catalog with every slider) was measured with davigen's own `measure._sample` on 1,400 raws decoded as
+   shot (`scripts/fivek_targets.py`). Findings:
+   - Experts don't put every key on grey. The final key depends on the **headroom**, the stops from the key up to
+     the 99.5th percentile: final key = −0.64 × (headroom − 2.7), R² 0.54, and the same for all five experts
+     (−0.56 … −0.65, zero at 2.6–2.8 stops). A flat, bright scene (beach, haze, headroom 1 stop) stays about a stop
+     above grey; bright sky over a darker subject (headroom 4.5 stops) goes more than a stop below. This is now
+     the exposure target (`headroom_weight`, `headroom_typical`, at most `headroom_max` = 1 stop from grey).
+   - Their Blacks slider follows the measured black level closely (r = 0.77), flatter scenes get more: the same
+     idea as the black-point contrast of §5.3.
+   - Colour: Saturation stays at 0, Vibrance is raised (median +41), more on dull pictures (+45 below C\* 8, +32
+     above 22): the chroma target of §5.4 does the same.
+   The images are licensed for research only; they and everything derived from them except these fitted numbers
+   stay on the development machine.
+4. **A learned first grade.** MIT-Adobe FiveK (5,000 raw photos, each retouched by five experts) is the standard
    set for learning exposure, white balance and tone from image statistics; it is licensed for research. A small
    regressor from the measurements in §5 to the four node values, fine-tuned on the user's own grades, is the
    long-term goal. Its output would still go through the same limits, flags and scenes, so it can never do more
    than the rules allow.
+
+## 14. Changes within a clip: keyframes
+
+A tunnel exit, a cloud over the sun, a walk from shade into light: one set of values can't fit the whole shot, and
+keyframing exposure by hand on every such clip is exactly the chore davigen should take away.
+
+1. **Find the change.** The samples of §4 are 4 s apart. Where neighbouring samples differ by more than
+   `refine_step_stops` (0.4 stop) or `refine_step_mired` (20 mired), davigen renders six more frames in between,
+   and once more inside the new gaps: a change is then located to within a few frames.
+2. **Composition or light?** A hand-held walk swings the key by a stop or two just by what is in frame. Moves up to
+   `dead_stops` (0.75) around the clip's median stay alone; one odd sample (someone walking past the lens) is
+   dropped by a running median. Only when the key moves by at least `min_change_stops` (1.5), or the light by
+   `min_change_mired` (30, with a confident white balance), does the clip get keyframes.
+3. **Follow it partly.** Beyond the dead zone `follow` (75 %) of the change is corrected, within the exposure
+   limits of §5.1 and only while the highlights have room: the tunnel is lifted, but still reads darker than the
+   street. White balance follows the measured light the same way (`wb_follow` 80 %).
+4. **Contrast pivots on each moment's key**, so the street's contrast doesn't push a lifted tunnel back down.
+   Saturation stays constant.
+5. **Few keyframes.** Douglas–Peucker keeps only the frames a straight line can't replace within
+   `tolerance_stops` (0.05), at most `max_keyframes`.
+6. **Write.** `DAVIGEN_AUTO` gets a keyframed copy of davigen's six-node structure through `ApplyGradeFromDRX`
+   (§12), only when it has exactly that structure; otherwise the constant values are written and the report says
+   why. Nodes 05 and 06 of a keyframed `DAVIGEN_AUTO` start empty; the user's own version is never touched. When a
+   later run writes constant values again, `DAVIGEN_AUTO` first goes back to the plain structure, because `SetCDL`
+   can't overwrite keyframes.
+
+On MARSEILLE_2026, from the cached samples alone (before the extra frames): with a dead zone of 0.5 and a minimum
+change of 1.0 stop, 33 of 57 clips got keyframes, mostly hand-held walks and car rides with moderate values
+(−0.4 to +0.8 stops). That rides composition more than a colorist would, so the defaults are now 0.75 and 1.5
+stops: 23 clips. The first real run will tell. The record keeps every measured frame (`samples_over_time`) and
+the keyframes, so each decision can be traced.

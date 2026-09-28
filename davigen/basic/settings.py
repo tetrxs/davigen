@@ -40,7 +40,8 @@ DEFAULTS: dict = {
         "exposure_spread": 3.3, "mired_spread": 150, "night_ev": 5.0,
     },
     "exposure": {
-        "max_stops_down": 3.0, "max_stops_up": 1.5, "clipped_white": 0.9, "skin_ire": [60, 70],
+        "max_stops_down": 3.0, "max_stops_up": 1.5, "headroom_weight": 0.64, "headroom_typical": 2.7,
+        "headroom_max": 1.0, "clipped_white": 0.9, "skin_ire": [60, 70],
         "skin_max_nudge": 0.5, "skin_disagree": 1.0, "ev_full": 10.0, "ev_low": 5.0,
         "ev_low_target": -1.0, "night_target": -1.5, "night_margin": 0.5, "high_key_max": 1.0, "low_key_min": -2.5,
     },
@@ -55,8 +56,8 @@ DEFAULTS: dict = {
         "wb_disagree_free": 2.0, "wb_disagree_per_degree": 0.08, "achromatic": 0.4, "dominant": 0.4, "mixed_light": 0.3, "haze": 0.3,
     },
     "dynamic": {
-        "enabled": True, "min_change_stops": 1.0, "min_change_mired": 30, "min_wb_confidence": 0.6,
-        "dead_stops": 0.5, "dead_mired": 15, "follow": 0.75, "wb_follow": 0.8,
+        "enabled": True, "min_change_stops": 1.5, "min_change_mired": 30, "min_wb_confidence": 0.6,
+        "dead_stops": 0.75, "dead_mired": 15, "follow": 0.75, "wb_follow": 0.8,
         "refine_step_stops": 0.4, "refine_step_mired": 20, "refine_frames": 6, "refine_passes": 2,
         "tolerance_stops": 0.05, "max_keyframes": 16,
     },

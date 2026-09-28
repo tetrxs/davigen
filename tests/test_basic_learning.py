@@ -32,6 +32,7 @@ def test_learned_offsets_change_the_correction(tmp_path):
     lut = colormath.output_lut(tmp_path / "out.cube", size=33)
     samples = [di(neutral_scene(key=0.09))]
     base = settings.load(None, learned=False)
+    base["exposure"]["headroom_weight"] = 0.0
     meas = m.measure(samples, m.ClipMeta(), lut, base)
     plain = c.correct(meas, samples, lut, base)
     tuned = dict(base, learned={**settings.NEUTRAL_LEARNED, "exposure": -0.5, "kelvin": 300})

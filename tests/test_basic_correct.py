@@ -12,6 +12,7 @@ from test_basic_measure import di, neutral_scene  # noqa: E402 - tests/ is on sy
 
 pytestmark = pytest.mark.skipif(not colormath.available(), reason="colour-science not installed")
 S = settings.load(None)
+S["exposure"]["headroom_weight"] = 0.0                # key to grey: the headroom target has its own test
 S["measure"]["white_balance"]["learned"] = False     # these tests check the maths on synthetic scenes, where the
 #                                                      classic estimators are exact; the learned model is tested
 #                                                      on real images (scripts/train_wb.py, test_basic_wb_model.py)
@@ -186,3 +187,19 @@ def test_brightening_stops_where_highlights_run_out(out_lut):
     meas, corr = run([sea], out_lut)
     assert meas.exposure_stops < -0.3
     assert corr.values["exposure_stops"] < 0.5 and "held by highlights" in corr.values["exposure_reason"]
+
+
+def test_headroom_moves_the_target(out_lut):
+    """A flat, bright scene stays above grey; bright highlights over a dark subject put the key below it."""
+    cfg = settings.load(None)
+    cfg["measure"]["white_balance"]["learned"] = False
+    rng = np.random.default_rng(4)
+    flat = np.kron(0.18 * np.exp(rng.normal(0, 0.25, (8, 12, 1))) * np.ones(3), np.ones((8, 8, 1)))
+    backlit = flat.copy()
+    backlit[:16] *= 16.0                                  # a band of bright sky, 4 stops over the subject
+    m_flat, c_flat = run([flat], out_lut, cfg=cfg)
+    m_back, c_back = run([backlit], out_lut, cfg=cfg)
+    after_flat = m_flat.exposure_stops + c_flat.values["exposure_stops"]
+    after_back = m_back.exposure_stops + c_back.values["exposure_stops"]
+    assert c_flat.values["exposure_headroom"] < c_back.values["exposure_headroom"]
+    assert after_flat > 0.3 and after_back < after_flat

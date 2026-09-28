@@ -122,8 +122,18 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
     key = m.exposure_stops
     confidence = 1.0
 
-    # where the frame's key should end up
+    # where the frame's key should end up: grey, moved by how far the highlights are above the key. Experts place
+    # a bright, low-contrast scene (beach, haze) above grey and a scene with bright highlights over a darker
+    # subject (backlight, a window) below it: on MIT-Adobe FiveK (expert C, 1,352 raws) the final key follows
+    # −0.64 × the headroom (R² 0.54; the other four experts −0.56 … −0.65), scripts/fivek_targets.py
     target, reason = 0.0, "grey"
+    headroom = _headroom(m, sim)
+    if ex["headroom_weight"] and headroom is not None:
+        t = ex["headroom_weight"] * (ex["headroom_typical"] - headroom)
+        target = max(-ex["headroom_max"], min(ex["headroom_max"], t))
+        if abs(target) >= 0.05:
+            reason = "by the highlights"
+    values["exposure_headroom"] = headroom
     ev = m.ev100
     if ms.is_night(m, fl):
         target, reason = ex["night_target"], "night"
@@ -147,7 +157,7 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
 
     # skin keeps the frame's key honest: after the key correction it should sit at skin_ire; the key decides,
     # skin may nudge by up to skin_max_nudge (a beige wall found as "skin" can't run the exposure)
-    if m.skin_stops is not None and reason in ("grey", "dusk / interior"):
+    if m.skin_stops is not None and reason in ("grey", "by the highlights", "dusk / interior"):
         lo, hi = (v / 100.0 for v in ex["skin_ire"])
         skin_di = float(p.to_log(0.18 * 2.0 ** m.skin_stops)) + exposure_cdl(m, stops).offset[0]
         now = sim.grey_luma(skin_di)
@@ -196,6 +206,14 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
     values.update(exposure_stops=stops, exposure_target=target, exposure_reason=reason, exposure_key=key,
                   exposure_range=[floor, ceiling])
     return p.Cdl(offset=(offset, offset, offset)), _clamp(confidence), limited
+
+
+def _headroom(m: ms.Measurement, sim: _Sim) -> float | None:
+    """Stops from the key up to the 99.5th percentile (as it comes out of the camera), None if unknown."""
+    if not (0.0 < m.white_point < 0.999):
+        return None
+    white_di = _bisect(sim.grey_luma, m.white_point, -0.1, 1.2)
+    return math.log2(max(float(p.to_linear(white_di)), 1e-6) / 0.18) - m.exposure_stops
 
 
 def exposure_cdl(m: ms.Measurement, stops: float) -> p.Cdl:
