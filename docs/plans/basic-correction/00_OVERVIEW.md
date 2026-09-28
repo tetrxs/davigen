@@ -14,6 +14,9 @@ reviewable change. Each one ends with tests or a check in Resolve, and leaves da
 | 07 | [Writing into Resolve](07_WRITE.md) | yes | 01, 05 | code done, Resolve check open |
 | 08 | [UI, entry points, config](08_UI.md) | yes | 03, 07 | code done, Resolve check open |
 | 09 | [Evaluation and tuning](09_EVALUATION.md) | yes | 08 | tooling done, needs hand-graded clips |
+| 10 | Keyframes for changes within a clip (concept §14) | yes | 07 | code done, grade format verified in Resolve, end-to-end check open |
+| 11 | Look: black point, targets from FiveK, colourfulness across cameras (concept §5, §6, §13) | no | 05, 06 | done 2026-09-29, tuned offline on MARSEILLE_2026 |
+| 12 | Report detail per clip (before / after, reasons, exposure over time) | no | 08 | done 2026-09-29 |
 
 Steps 02, 04, 05 and 06 are pure Python with numpy and colour-science. They can be built and tested without
 Resolve. Step 01 decided the details of 03 and 07; its answers are in §12 of the concept.
@@ -31,7 +34,10 @@ davigen/basic/
 ├── write.py         versions, nodes by label, SetCDL, markers, JSON record                     (07)
 ├── run.py           the flow used by the UI and the menu entry                                 (08)
 ├── settings.py      [basic_correction] from workflow.toml, with defaults                       (04)
-└── evaluate.py      DAVIGEN_AUTO vs the user's own version: scores and summary                  (09)
+├── evaluate.py      DAVIGEN_AUTO vs the user's own version: scores and summary                  (09)
+├── dynamic.py       changes within a clip: more samples, keyframed values                        (10)
+├── preview.py       before | after pictures for the report                                       (12)
+└── wb_model.py      the learned white-balance estimator
 ```
 
 **No new dependency:** Resolve renders uncompressed 16-bit TIFF (step 01), which a small reader in `sampling.py`

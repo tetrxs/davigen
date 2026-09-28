@@ -51,7 +51,7 @@ The day-to-day editing guide (which timeline is for what, how to grade, how to d
 | **Bins** | `01_FOOTAGE/<CAMERA>`, selects, timelines, audio, graphics, PowerGrades … Clips get a clip color and keywords, and the camera and profile are written to their metadata. |
 | **Timelines** | `TL_01_ASSEMBLY` holds all clips in shooting order. `TL_02_EDIT` and `TL_03_MASTER` are at master resolution. There is one `TL_0N_DELIVERY_…` timeline per extra delivery format. Every timeline has named tracks. |
 | **Color** | One color group per camera and profile (`G_LUMIX_S1II_VLOG`, `G_DJI_AIR3_DLOGM`). **Group Pre-Clip** turns the camera log into DaVinci Wide Gamut. **Group Post-Clip** turns that into Rec.709 with DaVinci tone mapping. Each clip gets six labelled, empty nodes (`01_EXPOSURE … 06_FINISH`). |
-| **Basic correction** | Measures every clip (rendered by Resolve itself, in the working space) and fills `01_EXPOSURE … 04_SATURATION` with exposure, white balance, contrast and saturation, matched per scene. Everything goes into a grade version `DAVIGEN_AUTO`; your own grade is never touched. Unsure clips get a marker. See [docs/WORKFLOW.md §5](docs/WORKFLOW.md#5-grading). |
+| **Basic correction** | Measures every clip (rendered by Resolve itself, in the working space) and fills `01_EXPOSURE … 04_SATURATION` with exposure, white balance, a real black point and saturation, matched per scene and across cameras. Where the light changes inside a clip (a tunnel, a cloud, shade to sun) it writes keyframes. Everything goes into a grade version `DAVIGEN_AUTO`; your own grade is never touched. Unsure clips get a marker, and the report shows every clip before and after, with what was measured and why. See [docs/WORKFLOW.md §5](docs/WORKFLOW.md#5-grading). |
 | **Edit assist** | Watches every clip once: green markers on good stretches, red on unusable ones (pocket, blur, shake, whip pans), blue where someone speaks, and a selects timeline of the good stretches. With a song it marks bars and sections and builds a first rough cut, cut on the beat. See [docs/concepts/EDIT_ASSIST.md](docs/concepts/EDIT_ASSIST.md). |
 | **Deliver** | Render presets and output folders for the master (ProRes 422 HQ), 16:9 UHD (H.265) and 9:16 1080 (H.264), with 16:9 HD, 4:5 and 1:1 as options. The whole set can be queued with one click. |
 
@@ -141,7 +141,8 @@ You then see each step's progress. The run ends with **Left to do in Resolve**: 
 API cannot do, such as setting the playback frame rate or generating proxies.
 
 **Basic correction** on the home screen (or **Workspace → Scripts → davigen Basic Correction**) runs the same
-first pass on the timeline that is open in Resolve, with a report of every clip.
+first pass on the timeline that is open in Resolve, with a report of every clip: click one for its before and after,
+the measurements, the values written, the reasons, and the exposure over the clip with its keyframes.
 
 ## The color pipeline
 
@@ -336,7 +337,9 @@ Third-party components are downloaded at install time, not redistributed:
 
 Basic correction's white-balance model (`davigen/basic/models/wb_ccc.npz`) was trained by davigen on the
 [SimpleCube++](https://github.com/Visillect/CubePlusPlus) dataset by Ershov et al. (2020), licensed CC BY 4.0. The
-method is Convolutional Color Constancy (Barron, ICCV 2015).
+method is Convolutional Color Constancy (Barron, ICCV 2015). Its exposure target was fitted on the experts' edits in
+[MIT-Adobe FiveK](https://data.csail.mit.edu/graphics/fivek/) (Bychkovsky et al., CVPR 2011, research licence):
+only the resulting numbers are in davigen, no images (`scripts/fivek_targets.py` reproduces them).
 
 Camera data comes from Wikidata (CC0), and photos from Wikimedia Commons under their individual licenses.
 Manufacturer LUTs are downloaded from the manufacturer and remain theirs.
