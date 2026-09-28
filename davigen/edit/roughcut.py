@@ -95,6 +95,8 @@ def plan(clips: list[ClipPlan], music: Music, cfg: dict) -> list[Shot]:
     if beats[0] > 0.05:                             # the cut starts with the music, not on its first beat
         beats = [0.0] + beats
         cuts = [0] + [c + 1 for c in cuts if c + 1 > 0]
+    if len(cuts) > 2 and cuts[1] - cuts[0] < 2:      # a lead-in shorter than two beats joins the first shot
+        cuts.pop(1)
     beat = 60.0 / max(music.tempo, 1.0)
     piece = beat * 4 * max(cfg["bars_calm"], cfg["bars_energetic"])
     pool = candidates(clips, cfg, piece + beat)
@@ -125,7 +127,7 @@ def plan(clips: list[ClipPlan], music: Music, cfg: dict) -> list[Shot]:
             fit = pos
             while fit + 1 <= target and beats[fit + 1] - beats[pos] <= c.length + 1e-6:
                 fit += 1
-            if fit - pos < 2:                       # shorter than two beats: not worth a cut
+            if fit - pos < 2 or target - fit < 2:   # a shot or a leftover under two beats: not worth a cut
                 continue
             end = fit
         else:

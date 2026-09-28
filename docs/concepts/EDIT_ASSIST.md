@@ -69,7 +69,11 @@ Beat tracking without dependencies (Ellis 2007, the method behind librosa's `bea
 2. Tempo: the autocorrelation of the onset envelope, weighted towards 120 BPM, in 60–180 BPM.
 3. Beats: dynamic programming that picks onset peaks close to the tempo grid.
 4. Bars: the beat phase with the strongest onsets every four beats.
-5. Sections: novelty in a loudness/brightness curve, snapped to bars.
+5. Sections: Foote novelty on the bars' self-similarity (mean log-mel spectrum per bar), at least 8 bars apart.
+   A section's energy is relative to the song: the share of its bars that are quieter.
+
+Checked against librosa on two real tracks (Kevin MacLeod, CC BY): the same tempo (96.0 vs 95.7, 102.3 vs
+103.4 BPM), 98 % and 88 % of the beats within 70 ms of librosa's; 7 and 8 sections.
 
 ## 5. Rough cut to music
 
@@ -109,3 +113,6 @@ sharpness was judged against each clip's sharpest 10 %. Judged against ±5 s of 
 4.6 min unusable (the camera pointing at the sand while walking, pocket shots, whip pans), 2.4 min speech. The
 drone flights are good apart from take-off and landing. Watching took about a third of the footage's running time
 (hardware decoding, two clips at a time).
+
+On "Carefree" (96 BPM, 3:25) the rough cut from the Marseille footage has 58 shots, 1.6–5.0 s (median one bar),
+from 29 clips, at most three per clip, 3:03 long before the footage ran out.

@@ -132,27 +132,40 @@ def downbeat_phase(env: np.ndarray, beats: np.ndarray, spec: np.ndarray, meter: 
 
 
 def sections(spec: np.ndarray, downbeats: np.ndarray, duration: float, min_bars: int = 8) -> list[dict]:
-    """Parts of the song: boundaries where loudness per bar changes most, at least `min_bars` apart."""
-    if len(downbeats) < 2:
+    """Parts of the song (verse, chorus, drop, calm bridge): Foote novelty on the bars' self-similarity.
+
+    Each bar is described by its mean log-mel spectrum (timbre) and loudness; a checkerboard kernel slid along
+    the diagonal of the bar-by-bar cosine similarity peaks where the music changes character. Boundaries are the
+    strongest peaks, at least `min_bars` apart.
+    """
+    if len(downbeats) < 4:
         return [{"start": 0.0, "end": duration, "energy": 0.5}]
-    loud = spec.mean(axis=1)
-    bars = np.append(downbeats, len(loud) - 1)
-    per_bar = np.array([loud[a:max(b, a + 1)].mean() for a, b in zip(bars[:-1], bars[1:])])
-    level = np.convolve(np.pad(per_bar, (1, 0), mode="edge"), np.ones(2) / 2, mode="valid")   # no zero edges
-    novelty = np.abs(np.diff(level, prepend=level[:1]))
+    bars = np.append(downbeats, len(spec) - 1)
+    feats = np.array([spec[a:max(b, a + 1)].mean(axis=0) for a, b in zip(bars[:-1], bars[1:])])
+    loud = feats.mean(axis=1)
+    x = feats - feats.mean(axis=0)
+    x /= np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-9)
+    sim = x @ x.T
+    n, k = len(sim), max(2, min_bars // 2)
+    sign = np.sign(np.arange(-k, k) + 0.5)
+    kernel = np.outer(sign, sign) * np.outer(np.hanning(2 * k), np.hanning(2 * k))
+    padded = np.pad(sim, k, mode="edge")
+    novelty = np.array([(padded[i:i + 2 * k, i:i + 2 * k] * kernel).sum() for i in range(n)])
+    novelty = np.maximum(novelty, 0)
+    threshold = novelty.mean() + 0.5 * novelty.std()
+    peaks = [i for i in range(1, n - 1) if novelty[i] >= novelty[i - 1] and novelty[i] >= novelty[i + 1]
+             and novelty[i] > threshold]
     cuts = [0]
-    for i in np.argsort(-novelty):
-        if novelty[i] < 0.25 * novelty.max() or i == 0:
-            continue
-        if all(abs(i - c) >= min_bars for c in cuts) and i <= len(per_bar) - min_bars // 2:
-            cuts.append(int(i))
-    cuts = sorted(cuts) + [len(per_bar)]
-    lo, hi = float(per_bar.min()), float(per_bar.max())
+    for i in sorted(peaks, key=lambda i: -novelty[i]):
+        if all(abs(i - c) >= min_bars for c in cuts) and n - i >= min_bars // 2:
+            cuts.append(i)
+    cuts = sorted(cuts) + [n]
     out = []
     for a, b in zip(cuts[:-1], cuts[1:]):
         start = float(downbeats[a] * FRAME)
         end = float(downbeats[b] * FRAME) if b < len(downbeats) else duration
-        energy = (float(per_bar[a:b].mean()) - lo) / max(hi - lo, 1e-9)
+        # energy relative to this song: the share of its bars that are quieter than this section
+        energy = float((loud < loud[a:b].mean()).mean())
         out.append({"start": start, "end": end, "energy": round(energy, 3)})
     out[0]["start"] = 0.0
     return out

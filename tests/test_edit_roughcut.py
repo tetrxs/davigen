@@ -63,3 +63,9 @@ def test_speech_is_skipped_and_short_stretches_end_on_a_beat():
 def test_not_enough_footage_ends_early():
     shots = rc.plan([clip(0, "2026-09-25T10:00:00Z", [(0.0, 10.0, 0.9)])], song(), CFG)
     assert 0 < len(shots) <= 3 and shots[-1].record_end < 64
+
+
+def test_no_shot_shorter_than_two_beats():
+    clips = [clip(i, f"2026-09-25T10:{i:02d}:00Z", [(0.0, 3.4 + (i % 3) * 0.9, 0.9)]) for i in range(30)]
+    shots = rc.plan(clips, song(), CFG)
+    assert shots and all(s.record_end - s.record_start >= 2 * 0.5 - 1e-6 for s in shots)

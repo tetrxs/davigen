@@ -40,7 +40,8 @@ def main() -> None:
             total[x.kind] += x.length
         print(f"{path.name:32s} {w.duration:6.1f}s  " + "  ".join(
             f"{x.kind[0].upper()}{x.start:.0f}-{x.end:.0f}{'(' + x.reason + ')' if x.reason else ''}" for x in segs))
-        plans.append(roughcut.ClipPlan(str(n), path.name, path.name, n, segs, w))
+        created = f"{path.stat().st_mtime:015.3f}"          # recording order (davigen moves files, mtime stays)
+        plans.append(roughcut.ClipPlan(str(n), path.name, created, n, segs, w))
     print({k: round(v / 60, 1) for k, v in total.items()}, "minutes")
     result = {"clips": [{"name": p.name, "segments": [x.to_dict() for x in p.segments]} for p in plans]}
     if args.music:
