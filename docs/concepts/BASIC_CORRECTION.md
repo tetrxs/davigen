@@ -76,7 +76,7 @@ This gives the constants everything else is built on:
 | Quantity | Value in DaVinci Intermediate |
 |---|---|
 | 18 % grey | **0.336** |
-| one stop | **0.0733** (exact above the toe, slightly less near black) |
+| one stop | **0.0733**: doubles *x* + 0.0075, so +1.03 stops at 18 % grey, +1.01 from 50 % up |
 
 The API writes grades as ASC CDL per node (`TimelineItem.SetCDL`):
 

@@ -6,7 +6,7 @@ reviewable change. Each one ends with tests or a check in Resolve, and leaves da
 | # | Step | Needs Resolve | Depends on | Status |
 |---|---|---|---|---|
 | 01 | [API spike in Resolve](01_SPIKE.md) | yes | – | done 2026-09-28: `SetCDL` works in Free |
-| 02 | [Pipeline simulator](02_PIPELINE.md) | no | – | open |
+| 02 | [Pipeline simulator](02_PIPELINE.md) | no | – | done 2026-09-28 |
 | 03 | [Frame sampling and cache](03_SAMPLING.md) | yes | 01 | open |
 | 04 | [Measurements](04_MEASUREMENTS.md) | no | 02 | open |
 | 05 | [Corrections per node](05_CORRECTIONS.md) | no | 02, 04 | open |

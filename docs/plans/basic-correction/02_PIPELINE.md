@@ -8,11 +8,13 @@ the working space and check targets in the display image.
 ## Tasks
 
 1. **DaVinci Intermediate:**
-   - `to_linear(y)` and `to_log(x)` via `colour.models.oetf_DaVinciIntermediate` and its inverse
+   - `to_linear(y)` and `to_log(x)`: Blackmagic's formula in numpy, tested against
+     `colour.models.oetf_DaVinciIntermediate` and its inverse
    - constants `GREY = 0.336`, `STOP = 0.07329248`
    - `stops_to_offset(s)` and `gain_to_offset(g)`
-2. **LUT application:** `apply_lut(image, cube_path)` with `colour.read_LUT` and `LUT3D.apply`, trilinear
-   (Resolve's default). LUTs read once and cached per path.
+2. **LUT application:** `apply_lut(image, cube_path)`: trilinear (Resolve's default), vectorised in numpy on the
+   table from `lut.Lut3D.read`, inputs clamped to 0–1. Tested against `Lut3D.sample`. LUTs are read once and cached
+   per path and mtime.
 3. **CDL model:** `apply_cdl(image, slope, offset, power, sat)`, as ASC CDL (see concept §3). Step 01 measured
    slope and offset as exact, and saturation mixing with luma weights (0.21, 0.70, 0.09) instead of Rec.709. Use
    those as a module constant `SAT_LUMA`, so step 03 can correct them after its recheck.
@@ -24,7 +26,7 @@ the working space and check targets in the display image.
 ## Tests
 
 - 18 % grey in linear lands at 0.336 ± 1e-3.
-- +1 stop offset doubles linear values above the toe (tolerance 1 %).
+- +1 stop offset doubles linear values above the toe (tolerance 1 %). Exactly, it doubles *x* + 0.0075.
 - A contrast of *c* around 0.336 leaves 0.336 unchanged for any *c*.
 - CDL identity (slope 1, offset 0, power 1, sat 1) returns the input unchanged.
 - `simulate` with identity nodes equals applying the two LUTs directly.
@@ -34,3 +36,16 @@ the working space and check targets in the display image.
 ## Done when
 
 The tests pass, and the simulator is the only place in `davigen/basic/` that knows about LUTs and CDL.
+
+## Result (2026-09-28)
+
+Done: [`davigen/basic/pipeline.py`](../../../davigen/basic/pipeline.py), tests in
+[`tests/test_basic_pipeline.py`](../../../tests/test_basic_pipeline.py). Beyond the plan:
+
+- `Cdl` is a small dataclass with constructors for each node (`exposure`, `white_balance`, `contrast`,
+  `saturation`) and `to_resolve(node)`, which gives the map `SetCDL` expects. Step 07 uses it.
+- `dwg_luminance`, `display_to_lab` and `chroma` are here too, so no other module needs colour spaces.
+- A +1 stop offset gives +1.03 stops at 18 % grey, because DaVinci Intermediate is `log2(x + 0.0075)`. Small enough
+  for exposure, but measurements should compare in linear, not assume exact stops near black.
+- Trilinear interpolation bends the grey axis a little between LUT grid points. Step 03 checks which interpolation
+  the project uses.

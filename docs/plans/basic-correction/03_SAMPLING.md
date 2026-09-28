@@ -55,6 +55,9 @@ Run on a real project with about 20 clips:
 - render settings are as before
 - a sample's thumbnail matches a Resolve still of the same frame, graded with the group only, within 1 %
 - the saturation luma weights from step 01, (0.21, 0.70, 0.09), refitted on a colourful frame
+- Resolve's 3D LUT interpolation (Project Settings → Color Management → 3D Lookup Table Interpolation): the simulator
+  uses trilinear, Resolve's default. Trilinear bends the grey axis slightly between grid points (up to 0.002 in the
+  65-point output LUT at 18 % grey); tetrahedral wouldn't. If the project uses tetrahedral, add it to `pipeline.py`
 
 ## Done when
 
