@@ -37,7 +37,8 @@ def mark_clip(mpi, segments: list[sel.Segment], fps: float) -> int:
         elif s.kind == sel.UNUSABLE:
             name, note = f"davigen: {s.reason or 'unusable'}", f"{s.length:.1f} s"
         else:
-            name, note = "davigen: speech", f"{s.length:.1f} s with voice"
+            name = "davigen: speech"
+            note = s.text[:1000] if s.text else f"{s.length:.1f} s with voice"
         try:
             ok = mpi.AddMarker(frame, COLOURS[s.kind], name, note, duration, MARKER_DATA)
         except TypeError:

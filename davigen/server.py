@@ -178,7 +178,7 @@ class App:
             music = res.stdout.strip()
             if res.returncode != 0 or not music:
                 return {"ok": False, "error": "No music chosen"}
-        return self._start(edit.STEPS, edit.flow, {"music": music})
+        return self._start(edit.STEPS, edit.flow, {"music": music, "transcribe": bool(body.get("transcribe"))})
 
     def start_evaluate(self, body: dict) -> dict:
         from .basic import run as basic  # noqa: PLC0415

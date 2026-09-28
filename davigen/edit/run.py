@@ -10,11 +10,14 @@ from pathlib import Path
 from .. import media_pool
 from ..config import Config
 from ..resolve_api import ResolveError, ensure_bin
-from . import apply, decode, music as music_mod, roughcut, selects as sel, settings as settings_mod, watch
+from . import apply, decode, music as music_mod, roughcut, selects as sel, settings as settings_mod, \
+    transcribe, watch
 
 STEPS = [
     ("watch", "Watch every clip"),
-    ("selects", "Selects + markers"),
+    ("selects", "Selects"),
+    ("transcribe", "Transcribe speech (Whisper)"),
+    ("markers", "Markers in the Media Pool"),
     ("timeline", "Selects timeline"),
     ("music", "Music: beats, bars, sections"),
     ("roughcut", "Rough cut to music"),
@@ -34,7 +37,8 @@ def _created(mpi) -> str:
     return ""
 
 
-def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | None = None) -> dict:
+def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | None = None,
+                transcribe_speech: bool = False) -> dict:
     from ..creator import project_base, project_format  # noqa: PLC0415 - creator is heavy; only when used
     if not decode.available():
         raise ResolveError("Edit Assist needs ffmpeg to watch the clips – install it with 'brew install ffmpeg'")
@@ -75,18 +79,32 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     # ---------------------------------------------------------------------------------------- selects
     rep.start("selects")
     plans: list[roughcut.ClipPlan] = []
-    marked = good_s = bad_s = 0
     for n, mpi in enumerate(clips):
         w = watched.get(n)
         if w is None:
             continue
-        segs = sel.segments(w, s["selects"])
-        marked += apply.mark_clip(mpi, segs, apply.clip_fps(mpi, tl_fps))
-        good_s += sum(x.length for x in segs if x.kind == sel.GOOD)
-        bad_s += sum(x.length for x in segs if x.kind == sel.UNUSABLE)
         plans.append(roughcut.ClipPlan(id=str(n), name=mpi.GetName(), created=_created(mpi), order=n,
-                                       segments=segs, watch=w))
-    rep.finish("selects", f"{marked} markers · {good_s / 60:.1f} min good, {bad_s / 60:.1f} min unusable")
+                                       segments=sel.segments(w, s["selects"]), watch=w))
+
+    def total(kind):
+        return sum(x.length for p in plans for x in p.segments if x.kind == kind) / 60
+    rep.finish("selects", f"{total(sel.GOOD):.1f} min good, {total(sel.UNUSABLE):.1f} min unusable, "
+               f"{total(sel.SPEECH):.1f} min speech")
+
+    # ------------------------------------------------------------------------------------- transcribe
+    tr = s["transcribe"]
+    if transcribe_speech and tr["enabled"] and any(x.kind == sel.SPEECH for p in plans for x in p.segments):
+        rep.start("transcribe")
+        written = _transcribe(plans, clips, base, tr, rep)
+        rep.finish("transcribe", written)
+    else:
+        rep.finish("transcribe", "no speech" if transcribe_speech else "not chosen", state="skipped")
+
+    # ---------------------------------------------------------------------------------------- markers
+    rep.start("markers")
+    marked = sum(apply.mark_clip(clips[int(p.id)], p.segments, apply.clip_fps(clips[int(p.id)], tl_fps))
+                 for p in plans)
+    rep.finish("markers", f"{marked} markers on {len(plans)} clips")
 
     # --------------------------------------------------------------------------------------- timeline
     rep.start("timeline")
@@ -150,11 +168,69 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     return record
 
 
+def _merge_speech(segs: list[sel.Segment], gap: float = 1.0) -> list[list[sel.Segment]]:
+    groups: list[list[sel.Segment]] = []
+    for x in sorted((x for x in segs if x.kind == sel.SPEECH), key=lambda x: x.start):
+        if groups and x.start - groups[-1][-1].end <= gap:
+            groups[-1].append(x)
+        else:
+            groups.append([x])
+    return groups
+
+
+def _transcribe(plans: list, clips: list, base: Path, tr: dict, rep) -> str:
+    """Whisper on every speech stretch; text into the segments, SRT per clip, one searchable transcript."""
+    if not transcribe.supported():
+        rep.warn(["Transcription needs a Mac with Apple Silicon"])
+        return "not supported on this Mac"
+    if not transcribe.available():
+        rep.detail("transcribe", "installing mlx-whisper into davigen's Python (once)")
+        err = transcribe.install()
+        if err:
+            rep.warn([f"Couldn't install mlx-whisper: {err}"])
+            return "mlx-whisper couldn't be installed"
+    jobs, owners = [], []
+    for p in plans:
+        path = clips[int(p.id)].GetClipProperty("File Path")
+        for group in _merge_speech(p.segments):
+            jobs.append({"path": path, "start": max(0.0, group[0].start - tr["pad"]),
+                         "end": group[-1].end + tr["pad"]})
+            owners.append((p, group))
+    rep.detail("transcribe", f"{len(jobs)} stretches · first run downloads the model (~1.6 GB)")
+    results = transcribe.run(jobs, tr["model"])
+    folder = base / "03_WORK" / "TRANSCRIPTS"
+    folder.mkdir(parents=True, exist_ok=True)
+    lines, words, dropped = ["# Transcripts", ""], 0, 0
+    by_clip: dict[str, list] = {}
+    for (p, group), res in zip(owners, results):
+        if not res["segments"]:
+            for x in group:                          # Whisper heard no words: not speech after all
+                p.segments.remove(x)
+            dropped += len(group)
+            continue
+        group[0].text = res["text"]
+        group[0].end = group[-1].end
+        for x in group[1:]:
+            p.segments.remove(x)
+        by_clip.setdefault(p.name, []).extend(res["segments"])
+        words += len(res["text"].split())
+        lines.append(f"- **{p.name}** {_clock(group[0].start)} ({res['language']}): {res['text']}")
+    for name, entries in by_clip.items():
+        (folder / f"{Path(name).stem}.srt").write_text(transcribe.srt(entries), encoding="utf-8")
+    (base / "00_ADMIN" / "PROJECT_INFO" / "transcripts.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return f"{words} words in {len(by_clip)} clips · {dropped} stretches were no speech · 03_WORK/TRANSCRIPTS"
+
+
+def _clock(t: float) -> str:
+    return f"{int(t // 60)}:{int(t % 60):02d}"
+
+
 def media_pool_folder_clips(mp, path: str) -> list:
     folder = ensure_bin(mp, path)
     return folder.GetClipList() or []
 
 
 def flow(resolve, cfg: Config, options: dict, rep) -> None:
-    edit_assist(resolve, cfg, rep, music_path=options.get("music", ""))
+    edit_assist(resolve, cfg, rep, music_path=options.get("music", ""),
+                transcribe_speech=bool(options.get("transcribe")))
 

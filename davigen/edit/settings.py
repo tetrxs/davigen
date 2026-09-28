@@ -22,6 +22,7 @@ DEFAULTS: dict = {
         "speech_min": 1.5,
     },
     "selects_timeline": {"max_seconds": 6.0, "min_rating": 0.5},
+    "transcribe": {"enabled": True, "model": "mlx-community/whisper-large-v3-turbo", "pad": 0.3},
     "rough_cut": {
         "bars_calm": 2,                 # shot length in bars where the music is calm …
         "bars_energetic": 1,            # … and where it is energetic

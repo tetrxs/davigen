@@ -70,3 +70,45 @@ def test_rough_cut_to_music(project):
     audio_bin = next(f for f in proj.mp.root.subs if f.name == "04_AUDIO")
     music_clip = next(f for f in audio_bin.subs if f.name == "MUSIC").clips[0]
     assert any("bar" in m["name"] for m in music_clip.markers.values())
+
+
+def test_transcripts_go_into_markers_and_srt(project, monkeypatch):
+    from davigen.edit import transcribe
+    resolve, proj, clips, base = project
+    monkeypatch.setattr(transcribe, "supported", lambda: True)
+    monkeypatch.setattr(transcribe, "available", lambda: True)
+    calls = []
+
+    def fake_run(jobs, model, timeout=3600):
+        calls.append(jobs)
+        out = []
+        for n, j in enumerate(jobs):
+            if n % 2:                                    # every other stretch: Whisper hears no words
+                out.append({"text": "", "language": "", "segments": []})
+            else:
+                out.append({"text": "Wir haben jetzt alle Zeit der Welt.", "language": "de",
+                            "segments": [{"start": j["start"], "end": j["end"], "text": "Wir haben jetzt alle Zeit der Welt."}]})
+        return out
+    monkeypatch.setattr(transcribe, "run", fake_run)
+    rep = Reporter(run.STEPS)
+    run.edit_assist(resolve, Config(), rep, base=base, transcribe_speech=True)
+    assert rep.steps["transcribe"]["state"] == "done", rep.steps["transcribe"]
+    assert all(j["start"] >= 0 and j["end"] > j["start"] for j in calls[0])
+    notes = [m["note"] for c in clips for m in c.markers.values() if m["name"] == "davigen: speech"]
+    assert notes and all("Zeit der Welt" in n for n in notes)            # dropped stretches lose their marker
+    assert (base / "03_WORK/TRANSCRIPTS").is_dir() and list((base / "03_WORK/TRANSCRIPTS").glob("*.srt"))
+    assert "Zeit der Welt" in (base / "00_ADMIN/PROJECT_INFO/transcripts.md").read_text()
+
+
+def test_whisper_cleaning_and_srt():
+    from davigen.edit import transcribe
+    segs = [{"start": 0, "end": 2, "text": " Hallo zusammen.", "avg_logprob": -0.3, "no_speech_prob": 0.1},
+            {"start": 2, "end": 4, "text": "Thank you.", "avg_logprob": -0.2, "no_speech_prob": 0.1},
+            {"start": 4, "end": 6, "text": "mumble", "avg_logprob": -1.6, "no_speech_prob": 0.2},
+            {"start": 6, "end": 8, "text": "wind", "avg_logprob": -0.4, "no_speech_prob": 0.9},
+            {"start": 3661.5, "end": 3663.25, "text": "Später.", "avg_logprob": -0.4, "no_speech_prob": 0.1}]
+    kept = transcribe.clean(segs)
+    assert [k["text"] for k in kept] == ["Hallo zusammen.", "Später."]
+    text = transcribe.srt(kept)
+    assert "1\n00:00:00,000 --> 00:00:02,000\nHallo zusammen.\n" in text
+    assert "01:01:01,500 --> 01:01:03,250" in text

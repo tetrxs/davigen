@@ -18,6 +18,7 @@ class Segment:
     end: float
     rating: float = 0.0         # good: 0–1, better is higher
     reason: str = ""
+    text: str = ""              # speech: what was said (Whisper), if transcribed
 
     @property
     def length(self) -> float:

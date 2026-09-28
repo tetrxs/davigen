@@ -76,10 +76,13 @@ def frames(path: str, fps: float = 5.0, width: int = 320, duration: float = 0.0)
     return np.frombuffer(raw[: n * width * height], dtype=np.uint8).reshape(n, height, width).astype("float32") / 255
 
 
-def audio(path: str, rate: int = 16000, duration: float = 0.0) -> np.ndarray:
-    """Mono audio as float32 −1…1 (empty if the file has none)."""
+def audio(path: str, rate: int = 16000, duration: float = 0.0, start: float = 0.0,
+          length: float = 0.0) -> np.ndarray:
+    """Mono audio as float32 −1…1 (empty if the file has none); optionally only [start, start + length)."""
+    span = (["-ss", f"{start:.3f}"] if start else []) + (["-t", f"{length:.3f}"] if length else [])
     try:
-        raw = _run(["-i", path, "-vn", "-ac", "1", "-ar", str(rate), "-f", "f32le", "-"], max(120.0, duration * 2))
+        raw = _run([*span, "-i", path, "-vn", "-ac", "1", "-ar", str(rate), "-f", "f32le", "-"],
+                   max(120.0, (length or duration) * 2))
     except DecodeError:
         return np.zeros(0, dtype="float32")
     return np.frombuffer(raw, dtype="<f4").copy()

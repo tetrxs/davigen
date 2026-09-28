@@ -198,6 +198,7 @@ function renderCurrent(c) {
         blue where someone speaks, and a selects timeline <span class="mono">TL_00_SELECTS_AUTO</span>. With music it
         also builds a first rough cut, <span class="mono">TL_02_EDIT_AUTO</span>, cut on the beat.</small></div>
       <div class="row gap wrap">
+        <label class="check" title="Whisper writes what is said into the blue markers, SRT files and a searchable transcript (Apple Silicon; installs once and downloads ~1.6 GB on first use)"><input type="checkbox" id="e-transcribe" checked> Transcribe speech</label>
         <button class="secondary" id="m-selects">Selects</button>
         <button class="primary" id="m-roughcut">Rough cut to music…</button>
       </div>
@@ -222,8 +223,8 @@ $("#current").addEventListener("click", async (e) => {
   if (flow) return runFlow(...MAINTENANCE[flow.dataset.flow]);
   if (e.target.closest("#m-basic")) return startBasic({ dry_run: $("#b-dry").checked, recompute: $("#b-re").checked });
   if (e.target.closest("#m-basic-report")) return showBasicReport();
-  if (e.target.closest("#m-selects")) return runFlow("/api/edit", "Edit assist · selects", {});
-  if (e.target.closest("#m-roughcut")) return runFlow("/api/edit", "Edit assist · rough cut", { pick_music: true });
+  if (e.target.closest("#m-selects")) return runFlow("/api/edit", "Edit assist · selects", { transcribe: $("#e-transcribe").checked });
+  if (e.target.closest("#m-roughcut")) return runFlow("/api/edit", "Edit assist · rough cut", { pick_music: true, transcribe: $("#e-transcribe").checked });
   if (e.target.closest("#m-basic-eval")) { evalRun = true; return runFlow("/api/basic/evaluate", "Basic correction vs your grade", {}); }
   if (e.target.closest("#m-add")) {
     state.mode = "add";

@@ -92,9 +92,14 @@ which is all the rough cut needs.
 ## 7. Configuration and limits
 
 All thresholds are in `[edit_assist]` in `config/workflow.toml`. ffmpeg is needed for decoding (Homebrew's is
-found automatically); without it Edit Assist says so and does nothing. Limits: no face or object recognition, no
-transcription yet (a later step could use Whisper), and the rough cut doesn't judge content, only craft (sharp,
-steady, well exposed, varied).
+found automatically); without it Edit Assist says so and does nothing. Limits: no face or object recognition, and the rough
+cut doesn't judge content, only craft (sharp, steady, well exposed, varied).
+
+**Transcription** uses Whisper large v3 turbo through mlx-whisper (Apple's MLX, Apple Silicon only) in a separate
+process with davigen's own Python. It only sees the speech stretches, merged when less than a second apart and
+padded by 0.3 s, and keeps only segments Whisper itself trusts (average log-probability above −1, no-speech
+probability below 0.6, no known silence hallucinations like "Thank you."). On MARSEILLE_2026 it transcribed a
+German and a French conversation correctly and dropped two stretches the voice detector had taken from wind.
 
 ## 8. Tuning on real footage
 

@@ -115,13 +115,19 @@ and down for 16:9 and plenty of room left and right for 9:16.
    |---|---|
    | green `davigen: good 0.82` | a steady, sharp, well exposed stretch; the number rates it |
    | red `davigen: blurred` / `shaking` / `dark / covered` / `whip pan` | skip this |
-   | blue `davigen: speech` | someone talks: an A-roll candidate |
+   | blue `davigen: speech` | someone talks: an A-roll candidate; with *Transcribe speech* the marker's note holds what was said |
 
    It also builds `TL_00_SELECTS_AUTO_…` in `03_TIMELINES/01_ASSEMBLY`: the good stretches (their calmest six
    seconds) in shooting order, a fast way to see the whole trip. **Rough cut to music…** asks for a song, marks its
    bars and sections, and builds `TL_02_EDIT_AUTO_…`: the best stretches in shooting order, cut on the bar, two
    bars per shot in calm parts and one in energetic ones, the song on A1. Every run makes a new version and
    replaces only davigen's own markers. Needs ffmpeg (`brew install ffmpeg`).
+
+   **Transcribe speech** (on by default, Apple Silicon): Whisper (large v3 turbo) writes what is said, in any
+   language, into the blue markers, an `.srt` per clip in `03_WORK/TRANSCRIPTS` (import it as subtitles) and
+   `00_ADMIN/PROJECT_INFO/transcripts.md`, a searchable list of everything said on the trip. Where Whisper hears no
+   words (wind, traffic) the speech marker is dropped. The first run installs `mlx-whisper` into davigen's Python and
+   downloads the model (~1.6 GB); after that a minute of speech takes a few seconds.
 3. **Pick your shots on the assembly timeline:**
    1. Open `TL_01_ASSEMBLY` (or the selects timeline) and play through it.
    2. Mark good moments with **I**/**O** and **F9** (insert) into your selects, or flag and color them.

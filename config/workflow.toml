@@ -303,6 +303,11 @@ speech_min = 1.5
 max_seconds = 6.0                   # at most this much of each good stretch (from its calmest part)
 min_rating = 0.5
 
+[edit_assist.transcribe]
+enabled = true
+model = "mlx-community/whisper-large-v3-turbo"   # Whisper large v3 turbo for MLX (~1.6 GB, downloaded once)
+pad = 0.3                           # seconds added around each speech stretch
+
 [edit_assist.rough_cut]
 bars_calm = 2                       # shot length in bars where the music is calm …
 bars_energetic = 1                  # … and where it is energetic
