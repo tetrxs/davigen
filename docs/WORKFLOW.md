@@ -77,11 +77,14 @@ any timeline. Each camera also gets its own **clip color**.
 
 | Timeline | Resolution | Purpose |
 |---|---|---|
-| `TL_01_ASSEMBLY_3X2_25_v001` | master | All footage in shooting order, filled by davigen. Watch it, mark and pick. Don't edit here. |
-| `TL_02_EDIT_3X2_25_v001` | master | The actual cut: story, timing, music. |
+| `TL_01_ASSEMBLY_3X2_25_v001` | master | All footage in shooting order, filled by davigen (new footage goes to its end). Basic correction measures here; Edit assist's markers show on its clips. Watch it, mark and pick. Don't edit here. |
+| `TL_02_EDIT_3X2_25_v001` | master | **Where you cut**: story, timing, music. Edit assist's rough cut lands here while it's empty; once you've started cutting, a new rough cut goes into `…_v002`, so your edit is never touched. |
 | `TL_03_MASTER_3X2_25_v001` | master | The picture-locked, graded, mixed film. It is the source of every delivery. |
 | `TL_04_DELIVERY_16X9_25_v001` | 3840 × 2160 | The master reframed for 16:9. |
 | `TL_05_DELIVERY_9X16_25_v001` | 1080 × 1920 | The master reframed for 9:16. |
+
+Basic correction's `DAVIGEN_AUTO` reaches every timeline: Resolve keeps a grade per timeline clip, so davigen
+writes it onto the same clips wherever they are used (*On every timeline*, and automatically for the rough cut).
 
 These are the tracks on every timeline:
 
@@ -108,22 +111,42 @@ and down for 16:9 and plenty of room left and right for 9:16.
    Project Settings → Master Settings → Working Folders → *Proxy generation location*. Resolve doesn't keep this
    path when a script sets it. Playback → **Proxy Handling → Prefer Proxies** keeps 6K open gate smooth on a
    laptop.
-2. **Pick your shots on the assembly timeline:**
-   1. Open `TL_01_ASSEMBLY` and play through it.
+2. **Let davigen watch the footage first (Edit assist):** on the home screen press **Selects**. davigen
+   watches every clip once (about three times faster than real time) and marks it in the Media Pool:
+
+   | Marker | Means |
+   |---|---|
+   | green `davigen: good 0.82` | a steady, sharp, well exposed stretch; the number rates it |
+   | red `davigen: blurred` / `shaking` / `dark / covered` / `whip pan` | skip this |
+   | blue `davigen: speech` | someone talks: an A-roll candidate; with *Transcribe speech* the marker's note holds what was said |
+
+   The markers belong to the clips, so they show in the Assembly and every other timeline; no extra timeline is
+   made. **Rough cut to music** (song, length and pace chosen on the Edit assist page) marks the song's bars and
+   sections and cuts the best stretches in shooting order on the bar into `TL_02_EDIT` – while it is empty, else
+   into its next version – with the song on the MUSIC track, graded like the Assembly, plus a preview video to
+   watch in davigen. A new run replaces only davigen's own markers. Needs ffmpeg (`brew install ffmpeg`).
+
+   **Transcribe speech** (on by default, Apple Silicon): Whisper (large v3 turbo) writes what is said, in any
+   language, into the blue markers, an `.srt` per clip in `03_WORK/TRANSCRIPTS` (import it as subtitles) and
+   `00_ADMIN/PROJECT_INFO/transcripts.md`, a searchable list of everything said on the trip. Where Whisper hears no
+   words (wind, traffic) the speech marker is dropped. The first run installs `mlx-whisper` into davigen's Python and
+   downloads the model (~1.6 GB); after that a minute of speech takes a few seconds.
+3. **Pick your shots on the assembly timeline:**
+   1. Open `TL_01_ASSEMBLY` and play through it; the green markers point at the good stretches.
    2. Mark good moments with **I**/**O** and **F9** (insert) into your selects, or flag and color them.
 
    Put the picks into `02_SELECTS`.
-3. **Cut:** build the film on `TL_02_EDIT`, story first, on V1 `MAIN`.
-4. **Picture lock:**
+4. **Cut:** build the film on `TL_02_EDIT` (or start from the rough cut), story first, on V1 `MAIN`.
+5. **Picture lock:**
    1. Duplicate the edit (right-click → *Duplicate Timeline*).
    2. Rename the copy to `TL_03_MASTER_…` and move it into `03_TIMELINES/03_MASTER`.
 
    Alternatively, copy everything into the empty master timeline davigen made.
-5. **Run *Assign groups & nodes*** in davigen. Resolve stores color groups and grades **per timeline clip**, so
+6. **Run *Assign groups & nodes*** in davigen. Resolve stores color groups and grades **per timeline clip**, so
    clips in a timeline you built yourself start out ungraded. This puts every clip in its camera group and gives
    each clip the six-node structure. It never touches clips you already graded.
-6. **Grade** on the master timeline (see below).
-7. **Deliver** (see below).
+7. **Grade** on the master timeline (see below).
+8. **Deliver** (see below).
 
 ## 5. Grading
 
@@ -157,6 +180,43 @@ camera log → DWG         03_CONTRAST ─▶ 04_SATURATION ─▶           fil
 
   A look placed here applies to the whole camera group. For a look across all cameras, save it as a PowerGrade
   and apply it to each group's post-clip graph.
+
+### Basic correction: the first pass, measured
+
+davigen can fill `01_EXPOSURE` to `04_SATURATION` for you. It renders a few small frames of every clip through
+Resolve, measures them in the working space and writes the values into a **new grade version called
+`DAVIGEN_AUTO`**. Your own version is never changed.
+
+- **Start it:** tick *Basic correction* when you create the project (on by default), press **Basic correction**
+  on the home screen for the current timeline, or choose **Workspace → Scripts → davigen Basic Correction**.
+  *Assign groups & nodes* also corrects clips that just got the node structure, when the project has it on.
+- **What it does per clip:**
+
+  | Node | Measured | Written |
+  |---|---|---|
+  | `01_EXPOSURE` | log-average brightness, skin (60–70 IRE), scene brightness from the camera's ISO, aperture and shutter | offset |
+  | `02_WHITE_BALANCE` | the light, from four estimators; its colour temperature and green/magenta | green/magenta fully, warm and cool only partly |
+  | `03_CONTRAST` | black and white points after the output LUT | contrast around middle grey |
+  | `04_SATURATION` | colourfulness after the output LUT | saturation, never boosting what is already colourful |
+
+- **Scenes:** clips shot within a few minutes in the same light form a scene. The most confident, longest clip is
+  its hero; the others are pulled towards it, and a clip that can't judge its light (a close-up of a green bush)
+  takes the scene's white balance.
+- **Where you see it:** on the Color page the values sit in the primaries of nodes 01–04: exposure shows on the
+  **Lift and Gain** wheels, saturation on *Sat*, and Resolve sets *Lum Mix* to 0 for these nodes. Everything stays
+  editable.
+- **Before/after:** right-click a clip → **Local Versions** → `Version 1` / `DAVIGEN_AUTO`.
+- **Unsure clips** get a yellow marker (*davigen: dominant colour*, *mixed light*, *clipped highlights*, …); clips
+  outside their color group a red one. The home screen shows a report of every clip; click a row to jump to it.
+- **Again:** a second run only corrects clips without `DAVIGEN_AUTO` and reuses the measured frames.
+  *Recompute all* rewrites every `DAVIGEN_AUTO` (changes you made inside it are lost). *Dry run* measures and
+  sets markers without touching any grade.
+- **Where it keeps things:** measured frames in `03_WORK/ANALYSIS/`, every value and the reason for it in
+  `00_ADMIN/PROJECT_INFO/basic_correction/<timeline>.json`.
+
+It is a first pass, not a look: silhouettes, night shots and golden hour stay what they are. How it works is in
+[docs/concepts/BASIC_CORRECTION.md](concepts/BASIC_CORRECTION.md); every threshold is in
+`config/workflow.toml` under `[basic_correction]`.
 
 **Matching cameras:** because each camera is converted into the same working space first, a V-Log clip and a
 D-Log M clip usually need only exposure and white balance to match. Grade the hero camera first, then match the

@@ -9,8 +9,8 @@ from .resolve_api import connect
 from .server import serve
 
 
-def main(injected_resolve=None) -> None:
-    serve(connect(injected_resolve))
+def main(injected_resolve=None, start: str = "") -> None:
+    serve(connect(injected_resolve), start=start)
 
 
 if __name__ == "__main__":

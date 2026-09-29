@@ -1,0 +1,112 @@
+import pytest
+
+np = pytest.importorskip("numpy")
+
+from davigen.edit import roughcut as rc  # noqa: E402
+from davigen.edit import selects as sel  # noqa: E402
+from davigen.edit import settings as edit_settings  # noqa: E402
+from davigen.edit.music import Music  # noqa: E402
+
+CFG = edit_settings.load(None)["rough_cut"]
+
+
+def song(bpm=120.0, seconds=64.0, calm_until=32.0):
+    period = 60 / bpm
+    beats = [round(0.5 + i * period, 3) for i in range(int((seconds - 0.5) / period))]
+    return Music(duration=seconds, tempo=bpm, beats=beats, downbeats=beats[::4],
+                 sections=[{"start": 0.0, "end": calm_until, "energy": 0.2},
+                           {"start": calm_until, "end": seconds, "energy": 0.9}])
+
+
+def clip(i, created, goods, speech=()):
+    segs = [sel.Segment(sel.GOOD, a, b, r) for a, b, r in goods] + [sel.Segment(sel.SPEECH, a, b) for a, b in speech]
+    return rc.ClipPlan(id=f"c{i}", name=f"C{i}.MOV", created=created, order=i, segments=segs)
+
+
+def test_grid_follows_section_energy():
+    cuts = rc.grid(song(), CFG)
+    m = song()
+    gaps = np.diff([m.beats[c] for c in cuts])
+    calm = [g for c, g in zip(cuts, gaps) if m.beats[c] < 31]
+    loud = [g for c, g in zip(cuts, gaps) if m.beats[c] > 33]
+    assert all(g == pytest.approx(4.0, abs=0.01) for g in calm)          # two bars at 120 BPM
+    assert all(g == pytest.approx(2.0, abs=0.01) for g in loud)          # one bar
+
+
+def test_plan_cuts_on_beats_in_recording_order():
+    clips = [clip(i, f"2026-09-25T10:{i:02d}:00Z", [(0.0, 30.0, 0.5 + i / 40)]) for i in range(12)]
+    shots = rc.plan(clips, song(), CFG)
+    m = song()
+    beat_times = set(m.beats) | {0.0, m.duration}
+    assert shots and shots[0].record_start == 0.0
+    for a, b in zip(shots, shots[1:]):
+        assert a.record_end == b.record_start                            # no gaps
+    assert all(any(abs(s.record_end - t) < 1e-6 for t in beat_times) for s in shots)
+    order = [int(s.clip_id[1:]) for s in shots]
+    window = CFG["reorder_window"]
+    assert all(order[i] <= order[j] for i in range(len(order)) for j in range(i + window + 1, len(order)))
+    counts = {c: sum(1 for s in shots if s.clip_id == c) for c in {s.clip_id for s in shots}}
+    assert max(counts.values()) <= CFG["max_per_clip"]
+    for s in shots:
+        assert s.source_end - s.source_start == pytest.approx(s.record_end - s.record_start, abs=1e-3)
+
+
+def test_speech_is_skipped_and_short_stretches_end_on_a_beat():
+    clips = [clip(0, "2026-09-25T10:00:00Z", [(0.0, 20.0, 0.9)], speech=[(0.0, 20.0)]),
+             clip(1, "2026-09-25T10:01:00Z", [(0.0, 3.1, 0.8)]),
+             clip(2, "2026-09-25T10:02:00Z", [(0.0, 40.0, 0.7)])]
+    shots = rc.plan(clips, song(), CFG)
+    assert "c0" not in {s.clip_id for s in shots}
+    short = next(s for s in shots if s.clip_id == "c1")
+    assert short.record_end - short.record_start <= 3.1 + 1e-6
+    assert (short.record_end - 0.5) / 0.5 == pytest.approx(round((short.record_end - 0.5) / 0.5), abs=1e-6)
+
+
+def test_not_enough_footage_ends_early():
+    shots = rc.plan([clip(0, "2026-09-25T10:00:00Z", [(0.0, 10.0, 0.9)])], song(), CFG)
+    assert 0 < len(shots) <= 3 and shots[-1].record_end < 64
+
+
+def test_no_shot_shorter_than_two_beats():
+    clips = [clip(i, f"2026-09-25T10:{i:02d}:00Z", [(0.0, 3.4 + (i % 3) * 0.9, 0.9)]) for i in range(30)]
+    shots = rc.plan(clips, song(), CFG)
+    assert shots and all(s.record_end - s.record_start >= 2 * 0.5 - 1e-6 for s in shots)
+
+
+def test_jump_cuts_are_broken_up():
+    clips = [clip(0, "2026-09-25T10:00:00Z", [(0.0, 60.0, 0.95)]), clip(1, "2026-09-25T10:05:00Z", [(0.0, 20.0, 0.9)]),
+             clip(2, "2026-09-25T10:06:00Z", [(0.0, 20.0, 0.9)])]
+    shots = rc.plan(clips, song(seconds=40.0), CFG)
+    ids = [s.clip_id for s in shots]
+    assert len(ids) >= 4
+    for i in range(1, len(ids)):                     # a repeat only where no other clip is left
+        if ids[i] == ids[i - 1]:
+            assert set(ids[i:]) == {ids[i]}
+    assert ids[0] == "c0"                                                            # the story still starts there
+
+
+def test_short_cut_takes_the_energetic_part_on_whole_bars():
+    m = song(seconds=64.0, calm_until=32.0)
+    a, b = rc.music_window(m, 20)
+    assert a >= 31.0 and a in m.downbeats                 # the loud half, from a bar
+    assert b - a == pytest.approx(20, abs=4)
+    part = rc.cut_music(m, a, b)
+    assert part.duration == pytest.approx(b - a) and part.beats[0] >= 0 and part.beats[-1] < part.duration
+    assert rc.music_window(m, 0) == (0.0, m.duration)
+
+
+def test_short_cut_uses_each_clip_once_and_fills_the_music():
+    clips = [clip(i, f"2026-09-25T10:{i:02d}:00Z", [(0.0, 40.0, 0.9 - i / 100)]) for i in range(20)]
+    m = song(seconds=64.0)
+    a, b = rc.music_window(m, 16)
+    shots = rc.plan(clips, rc.cut_music(m, a, b), rc.with_pace(CFG, "fast"))
+    ids = [s.clip_id for s in shots]
+    assert len(ids) == len(set(ids))
+    assert shots[-1].record_end == pytest.approx(b - a, abs=0.01)
+
+
+def test_short_stretches_still_fill_a_calm_song():
+    clips = [clip(i, f"2026-09-25T10:{i:02d}:00Z", [(0.0, 3.5, 0.8), (10.0, 13.5, 0.7)]) for i in range(30)]
+    m = song(seconds=64.0)
+    shots = rc.plan(clips, m, rc.with_pace(CFG, "calm"))
+    assert shots[-1].record_end == pytest.approx(m.duration, abs=0.6)     # up to the last whole beat

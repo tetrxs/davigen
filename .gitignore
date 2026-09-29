@@ -1,5 +1,5 @@
 # local runtime (downloaded by install.sh)
-/runtime/
+/runtime
 .venv/
 
 # per-Mac state: settings, project list, camera catalog, downloaded/baked LUTs, transfer journals
@@ -10,3 +10,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
+
+# the commit install.sh installed
+/.commit
+
+# web UI sources: dependencies and agent skills stay local
+/web/node_modules/
+/web/.agents/
+/web/.claude/
+/web/skills-lock.json
+/web/dist/

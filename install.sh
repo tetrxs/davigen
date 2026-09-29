@@ -5,7 +5,8 @@
 #
 # Everything lives in one folder (default ~/Applications/davigen): the code, a private Python, exiftool and
 # davigen's data. Outside that folder only three small things are written, all removed by uninstall.sh:
-#   · the menu entry   ~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/davigen.py
+#   · the menu entries ~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/davigen.py
+#                      and "davigen Basic Correction.py" next to it
 #   · a LaunchAgent    ~/Library/LaunchAgents/com.davigen.python.plist  (tells Resolve where davigen's Python is)
 #   · baked LUTs       /Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/davigen/
 #
@@ -51,11 +52,15 @@ else
   say "Downloading davigen ($REF) into $ROOT"
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
-  curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" | tar -xz -C "$TMP" --strip-components 1 \
+  # the exact commit, so davigen's settings can tell whether a newer one exists
+  SHA="$(curl -fsSL -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/$REPO/commits/$REF" 2>/dev/null || true)"
+  [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || SHA=""
+  curl -fsSL "https://codeload.github.com/$REPO/tar.gz/${SHA:-$REF}" | tar -xz -C "$TMP" --strip-components 1 \
     || die "Download failed – check the internet connection and DAVIGEN_REF."
   mkdir -p "$ROOT"
   # replace the code, keep what belongs to this Mac (data/, runtime/)
   rsync -a --delete --exclude '/data/' --exclude '/runtime/' --exclude '/.venv/' "$TMP/" "$ROOT/"
+  if [[ -n "$SHA" ]]; then print -r -- "$SHA" > "$ROOT/.commit"; fi
 fi
 RUNTIME="$ROOT/runtime"
 ARCH="$(uname -m)"
@@ -117,7 +122,8 @@ xattr -dr com.apple.quarantine "$RUNTIME" 2>/dev/null || true
 mkdir -p "$SCRIPTS"
 rm -f "$SCRIPTS/Travel Creator.py"                       # name used by early versions
 sed "s#@DAVIGEN_ROOT@#$ROOT#" "$ROOT/resolve_menu/davigen.py.template" > "$SCRIPTS/davigen.py"
-ok "Menu entry: Resolve → Workspace → Scripts → davigen"
+sed "s#@DAVIGEN_ROOT@#$ROOT#" "$ROOT/resolve_menu/davigen_basic.py.template" > "$SCRIPTS/davigen Basic Correction.py"
+ok "Menu entries: Resolve → Workspace → Scripts → davigen, davigen Basic Correction"
 
 # 4 · LUTs baked on this or another Mac (portable copies live in data/luts) --------------------------
 if [[ -d "$ROOT/data/luts" ]] && mkdir -p "$LUTS" 2>/dev/null; then

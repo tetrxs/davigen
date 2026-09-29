@@ -21,7 +21,7 @@ trash() {  # move to the Trash (recoverable) instead of deleting
 
 launchctl unload "$AGENT" 2>/dev/null || true
 launchctl unsetenv PYTHON3HOME
-rm -f "$AGENT" "$SCRIPTS/davigen.py" "$SCRIPTS/Travel Creator.py"
+rm -f "$AGENT" "$SCRIPTS/davigen.py" "$SCRIPTS/davigen Basic Correction.py" "$SCRIPTS/Travel Creator.py"
 rm -f "$HOME/.davigen/python" && rmdir "$HOME/.davigen" 2>/dev/null || true
 echo "✓ Menu entry and autostart removed"
 if [[ "${1:-}" == "--purge" ]]; then

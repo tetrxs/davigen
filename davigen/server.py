@@ -16,18 +16,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, catalog, creator, filesystem, formats, naming, providers, scanner, transfer, transforms
+from . import __version__, catalog, creator, filesystem, formats, naming, posters, providers, scanner, transfer, transforms
+from . import update
 from .config import DATA_DIR, Camera, Config, save_settings, settings
 from .formats import Format
 from .project import PM_FOLDER
+from .basic import settings as basic_settings
 from .lut import Lut3D
 from .resolve_api import capabilities, find_project, version
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 # Resolve's scripting API isn't thread-safe: requests that talk to Resolve run one at a time.
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
-RESOLVE_ROUTES = {"/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
-                  "/api/preview", "/api/scan"}
+RESOLVE_ROUTES = {"/api/timeline/open", "/api/edit/last", "/api/edit/preview", "/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
+                  "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn",
+                  "/api/basic/clip", "/api/basic/look"}
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
 
 
@@ -44,6 +47,14 @@ class App:
         self.catalog_state: dict = {"running": False, "done": 0, "total": 0, "what": "", "error": ""}
         self.recovery: list[dict] = []
         self.resolve_lock = threading.Lock()
+        self.updater = update.Updater()
+        self._records: dict[Path, tuple[float, dict]] = {}
+        # before | after pictures: made one at a time, outside the Resolve lock, the newest request first
+        self._render_lock = threading.Lock()
+        self._render_gen = 0
+        self._pictures: dict[tuple, bytes] = {}
+        self._songs: dict[tuple, dict] = {}
+        self._edit_paths: set[str] = set()
 
     # ------------------------------------------------------------------ app info
     def info(self) -> dict:
@@ -64,6 +75,7 @@ class App:
                                 "resolution": d["resolution"]} for d in cfg.workflow["deliver"]],
             },
             "transfer": cfg.workflow["project"]["transfer"],
+            "basic_default": basic_settings.load(cfg.workflow)["wizard_default"],
             "default_root": user.get("default_root") or cfg.workflow["project"]["default_root"],
             "profiles": [{"id": p.id, "label": p.label} for p in cfg.profiles.values()],
             "shorts": {p.id: p.short for p in cfg.profiles.values()},
@@ -94,6 +106,16 @@ class App:
         res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, encoding="utf-8",
                              errors="replace")
         return {"path": res.stdout.strip().rstrip("/") if res.returncode == 0 else ""}
+
+    def pick_files(self, body: dict) -> dict:
+        """Several video files at once (Finder's multiple selection)."""
+        prompt = body.get("prompt", "Choose clips").replace('"', "'")
+        script = (f'set fs to choose file with prompt "{prompt}" with multiple selections allowed\n'
+                  'set out to ""\nrepeat with f in fs\nset out to out & POSIX path of f & linefeed\nend repeat\n'
+                  'return out')
+        res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, encoding="utf-8",
+                             errors="replace")
+        return {"paths": [line for line in res.stdout.splitlines() if line.strip()] if res.returncode == 0 else []}
 
     # ------------------------------------------------------------------ scanning
     def start_scan(self, body: dict) -> dict:
@@ -156,6 +178,285 @@ class App:
     def start_queue(self, body: dict) -> dict:
         return self._start(creator.QUEUE_STEPS, creator.queue_renders)
 
+    def start_basic(self, body: dict) -> dict:
+        from .basic import run as basic  # noqa: PLC0415 - numpy is only needed once Basic Correction runs
+        options = {"dry_run": bool(body.get("dry_run")), "recompute": bool(body.get("recompute")),
+                   "timeline": body.get("timeline", ""), "spread": bool(body.get("spread"))}
+        return self._start(basic.STEPS, basic.flow, options)
+
+    def start_edit(self, body: dict) -> dict:
+        """Edit Assist; with pick_music the user chooses a music file for the rough cut first."""
+        from .edit import decode, run as edit  # noqa: PLC0415
+        if not decode.available():
+            return {"ok": False, "error": "Edit Assist needs ffmpeg: install it with 'brew install ffmpeg' "
+                                          "(https://brew.sh), then try again"}
+        music = body.get("music") or ""
+        if music and not _is_audio(music):
+            return {"ok": False, "error": "That music file can't be read"}
+        if body.get("pick_music") and not music:
+            res = subprocess.run(["osascript", "-e", 'POSIX path of (choose file with prompt "Music for the rough '
+                                  'cut" of type {"public.audio"})'], capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace")
+            music = res.stdout.strip()
+            if res.returncode != 0 or not music:
+                return {"ok": False, "error": "No music chosen"}
+        return self._start(edit.STEPS, edit.flow, {"music": music, "transcribe": bool(body.get("transcribe")),
+                                                   "seconds": float(body.get("seconds") or 0),
+                                                   "pace": body.get("pace") if body.get("pace") in
+                                                   ("calm", "auto", "fast") else "auto"})
+
+    def start_edit_preview(self, body: dict) -> dict:
+        from .edit import run as edit  # noqa: PLC0415
+        base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
+        return self._start(edit.PREVIEW_STEPS, edit.preview_flow, {"base": str(base)})
+
+    def open_timeline(self, body: dict) -> dict:
+        """Show one of davigen's timelines on Resolve's Edit page."""
+        from .resolve_api import find_timeline  # noqa: PLC0415
+        name = body.get("name", "")
+        if not re.match(r"^TL_\w+$", name):
+            return {"ok": False, "error": "Not a davigen timeline"}
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        tl = find_timeline(proj, name)
+        if tl is None:
+            return {"ok": False, "error": f"{name} isn't in this project anymore"}
+        ok = bool(proj.SetCurrentTimeline(tl))
+        self.resolve.OpenPage("edit")
+        return {"ok": ok}
+
+    def edit_preview_file(self) -> Path:
+        with self.resolve_lock:
+            base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
+        rec = json.loads((base / "00_ADMIN" / "PROJECT_INFO" / "edit_assist.json").read_text(encoding="utf-8"))
+        target = Path(rec.get("preview") or "")
+        if not target.is_file() or base not in target.parents:
+            raise FileNotFoundError("no preview")
+        return target
+
+    # ------------------------------------------------------------------ edit assist: music and results
+    def pick_music(self, body: dict) -> dict:
+        res = subprocess.run(["osascript", "-e", 'POSIX path of (choose file with prompt "Music for the rough cut" '
+                              'of type {"public.audio"})'], capture_output=True, text=True, encoding="utf-8",
+                             errors="replace")
+        path = res.stdout.strip()
+        return {"path": path, "name": Path(path).name} if res.returncode == 0 and path else {"path": ""}
+
+    def music_info(self, q: dict) -> dict:
+        """Tempo, bars, sections and a small waveform of a song, and which part a 30/60/90 s cut would use."""
+        from .edit import decode, music as music_mod, roughcut  # noqa: PLC0415
+        path = (q.get("path") or [""])[0]
+        if not _is_audio(path):
+            return {"ok": False, "error": "That music file can't be read"}
+        key = (path, Path(path).stat().st_mtime)
+        if key not in self._songs:
+            samples = decode.audio(path, music_mod.RATE)
+            if len(samples) < music_mod.RATE * 5:
+                return {"ok": False, "error": "No usable audio in that file"}
+            track = music_mod.analyse(samples)
+            bins = 240
+            chunk = max(1, len(samples) // bins)
+            rms = [float((samples[i * chunk:(i + 1) * chunk] ** 2).mean() ** 0.5) for i in range(bins)]
+            top = max(rms) or 1.0
+            self._songs = {key: {"ok": True, "name": Path(path).name, "path": path, "duration": track.duration,
+                                 "tempo": track.tempo, "bars": len(track.downbeats), "sections": track.sections,
+                                 "wave": [round(r / top, 3) for r in rms],
+                                 "windows": {str(s): roughcut.music_window(track, s) for s in (30, 60, 90)}}}
+        return self._songs[key]
+
+    def edit_last(self, q: dict) -> dict:
+        """The last Edit Assist run of the open project, for the results view."""
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        try:
+            base = creator.project_base(proj)
+        except Exception:  # noqa: BLE001
+            return {"ok": False}
+        target = base / "00_ADMIN" / "PROJECT_INFO" / "edit_assist.json"
+        if not target.exists():
+            return {"ok": False}
+        rec = json.loads(target.read_text(encoding="utf-8"))
+        self._edit_paths = {c.get("path") for c in rec.get("clips", []) if c.get("path")}
+        music = rec.get("music") or {}
+        preview = Path(rec.get("preview") or "")
+        return {"ok": True, "date": rec.get("date", ""), "selects_timeline": rec.get("selects_timeline", ""),
+                "preview": int(preview.stat().st_mtime) if preview.is_file() else 0,
+                "rough_cut": rec.get("rough_cut", ""), "music_file": rec.get("music_file", ""),
+                "music": {k: music.get(k) for k in ("duration", "tempo", "sections")} if music else None,
+                "music_window": rec.get("music_window"), "pace": rec.get("pace", ""),
+                "shots": rec.get("shots", []), "selects": rec.get("selects", []),
+                "clips": [{k: c.get(k) for k in ("id", "name", "path", "duration", "segments")}
+                          for c in rec.get("clips", [])]}
+
+    def edit_frame(self, q: dict) -> bytes:
+        path = (q.get("path") or [""])[0]
+        if path not in self._edit_paths:
+            raise FileNotFoundError("not a clip of the last Edit Assist run")
+        with self.resolve_lock:
+            base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
+        width = min(max(int((q.get("w") or ["320"])[0] or 320), 96), 960)
+        return posters.clip_frame(base, path, float((q.get("s") or ["0"])[0] or 0), width)
+
+    def start_basic_carry(self, body: dict) -> dict:
+        from .basic import carry  # noqa: PLC0415
+        return self._start(carry.STEPS, carry.flow, {"refresh": bool(body.get("refresh"))})
+
+    def start_basic_reset(self, body: dict) -> dict:
+        from .basic import run as basic  # noqa: PLC0415
+        return self._start(basic.RESET_STEPS, basic.reset_flow, {"timeline": body.get("timeline", "")})
+
+    def start_evaluate(self, body: dict) -> dict:
+        from .basic import run as basic  # noqa: PLC0415
+        return self._start(basic.EVALUATE_STEPS, basic.evaluate_flow, {"user_version": body.get("user_version", "")})
+
+    def basic_report(self, q: dict) -> dict:
+        """The last Basic Correction record of the current timeline, as report rows."""
+        from .basic import run as basic, write  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        timeline = proj.GetCurrentTimeline() if proj else None
+        if timeline is None:
+            return {"timeline": "", "rows": []}
+        record = write.load_record(creator.project_base(proj), timeline.GetName())
+        return {"timeline": timeline.GetName(), "date": record.get("date", ""), "dry_run": record.get("dry_run"),
+                "rows": basic.rows(record)}
+
+    def _basic_entry(self, item_id: str) -> tuple[dict, object]:
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        timeline = proj.GetCurrentTimeline() if proj else None
+        if timeline is None:
+            return {}, None
+        base = creator.project_base(proj)
+        record = self._record(base, timeline.GetName())
+        return next((e for e in record.get("items", []) if e.get("id") == item_id), {}), base
+
+    def _record(self, base: Path, timeline_name: str) -> dict:
+        """The Basic correction record of a timeline, read again only when the file changed."""
+        from .basic import write  # noqa: PLC0415
+        target = base / "00_ADMIN" / "PROJECT_INFO" / "basic_correction" / f"{timeline_name}.json"
+        stamp = target.stat().st_mtime if target.exists() else 0.0
+        if self._records.get(target, (None,))[0] != stamp:
+            self._records = {target: (stamp, write.load_record(base, timeline_name))}
+        return self._records[target][1]
+
+    def basic_thumb(self, q: dict) -> bytes:
+        """Small PNG of a clip of the last report, graded, from the analysis cache (the report's film strip)."""
+        with self.resolve_lock:
+            entry, base = self._basic_entry((q.get("id") or [""])[0])
+        if not entry:
+            raise FileNotFoundError("unknown clip")
+        return posters.thumb(entry, base)
+
+    # ------------------------------------------------------------------ pictures and updates
+    def _known_folder(self, folder: str) -> Path | None:
+        known = {p["folder"] for p in filesystem.recent_projects(check=False)}
+        return Path(folder) if folder in known and Path(folder).is_dir() else None
+
+    def project_posters(self, q: dict) -> dict:
+        base = self._known_folder((q.get("folder") or [""])[0])
+        if base is None:
+            return {"posters": []}
+        return {"posters": [{"index": i, "name": s["name"], "group": s["group"]}
+                            for i, s in enumerate(posters.sources(base))]}
+
+    def project_poster(self, q: dict) -> bytes:
+        base = self._known_folder((q.get("folder") or [""])[0])
+        if base is None:
+            raise FileNotFoundError("unknown project")
+        width = min(max(int((q.get("w") or ["640"])[0] or 640), 160), 1280)
+        return posters.poster(base, int((q.get("i") or ["0"])[0] or 0), width)
+
+    def update_run(self, body: dict) -> dict:
+        if self.busy():
+            return {"ok": False, "error": "Wait until the running job is finished"}
+        return self.updater.run()
+
+    def basic_clip(self, q: dict) -> dict:
+        """Everything the record knows about one clip: what was measured, what was decided and why."""
+        entry, _ = self._basic_entry((q.get("id") or [""])[0])
+        if not entry:
+            return {"ok": False, "error": "That clip isn't in the last report of this timeline"}
+        keep = ("id", "name", "group", "source_start", "source_frames", "clip_fps", "frames", "meta", "measurement",
+                "correction", "scene", "hero", "scene_notes", "outcome", "keyframes", "samples_over_time")
+        return {"ok": True, **{k: entry.get(k) for k in keep}}
+
+    def basic_preview(self, q: dict) -> bytes:
+        """PNG: one frame of a clip before | after DAVIGEN_AUTO.
+
+        Scrubbing asks for many frames quickly. Each picture decodes a camera frame, so they are made one at a
+        time and outside the Resolve lock (the rest of the UI keeps answering); a request that a newer one has
+        overtaken while it waited gives up (Superseded), and finished pictures are kept for going back."""
+        from .basic import preview  # noqa: PLC0415
+        with self.resolve_lock:
+            entry, base = self._basic_entry((q.get("id") or [""])[0])
+        if not entry:
+            raise FileNotFoundError("unknown clip")
+        frames = entry.get("frames") or [entry.get("source_start", 0)]
+        frame = int((q.get("frame") or [frames[len(frames) // 2]])[0])
+        key = (entry.get("path"), frame, json.dumps(entry.get("correction", {}).get("nodes"), sort_keys=True))
+        if key in self._pictures:
+            return self._pictures[key]
+        self._render_gen += 1
+        mine = self._render_gen
+        with self._render_lock:
+            if mine != self._render_gen:
+                raise Superseded("a newer picture was asked for")
+            png = preview.png(preview.before_after(entry, frame, base / "03_WORK" / "ANALYSIS"))
+        if len(self._pictures) > 48:
+            self._pictures.pop(next(iter(self._pictures)))
+        self._pictures[key] = png
+        return png
+
+    def basic_look(self, q: dict) -> dict:
+        """The project's look, the options with what each does, and sample clips of the last report to show them."""
+        from .basic import settings as basic_settings, write  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        base = creator.project_base(proj)
+        s = basic_settings.load(self.cfg.workflow, look=write.load_look(base))
+        options = {dim: [{"name": k, "label": v["label"], "about": v["about"]} for k, v in s["looks"][dim].items()]
+                   for dim in basic_settings.LOOK_DIMENSIONS}
+        timeline = proj.GetCurrentTimeline()
+        record = write.load_record(base, timeline.GetName()) if timeline else {}
+        return {"look": s["look_applied"], "defaults": s["look"], "options": options,
+                "samples": _look_samples(record), "status": _basic_status(timeline, record)}
+
+    def basic_look_save(self, body: dict) -> dict:
+        from .basic import settings as basic_settings, write  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        base = creator.project_base(proj)
+        look = {k: v for k, v in (body.get("look") or {}).items() if k in basic_settings.LOOK_DIMENSIONS}
+        write.save_look(base, {**write.load_look(base), **look})
+        return {"ok": True, "look": basic_settings.load(self.cfg.workflow, look=write.load_look(base))["look_applied"]}
+
+    def basic_look_preview(self, q: dict) -> bytes:
+        """PNG: a sample clip with one option of one look dimension (the others as the project has them)."""
+        from .basic import preview, settings as basic_settings, write  # noqa: PLC0415
+        with self.resolve_lock:
+            entry, base = self._basic_entry((q.get("id") or [""])[0])
+            look = write.load_look(base) if base else {}
+        if not entry:
+            raise FileNotFoundError("unknown clip")
+        # the setup passes its choices so far (nothing is saved before the run starts)
+        look = {**look, **{d: (q.get(d) or [""])[0] for d in basic_settings.LOOK_DIMENSIONS if q.get(d)}}
+        dim, option = (q.get("dim") or [""])[0], (q.get("option") or [""])[0]
+        width = min(max(int((q.get("w") or ["360"])[0] or 360), 120), 960)
+        if option == "before":
+            img = preview.look_preview(entry, base / "03_WORK" / "ANALYSIS", self.cfg.workflow, None, width)
+        else:
+            if dim in basic_settings.LOOK_DIMENSIONS:
+                look = {**look, dim: option}
+            img = preview.look_preview(entry, base / "03_WORK" / "ANALYSIS", self.cfg.workflow, look, width)
+        return preview.png(img)
+
+    def basic_learn(self, body: dict) -> dict:
+        """Take the last 'Compare with my grade' of the current timeline over into the learned offsets."""
+        from .basic import run as basic  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        learned = basic.learn_from_evaluation(creator.project_base(proj), proj.GetCurrentTimeline().GetName(),
+                                              self.cfg)
+        return {"ok": True, "learned": learned}
+
+    def basic_goto(self, body: dict) -> dict:
+        from .basic import run as basic  # noqa: PLC0415
+        return {"ok": basic.goto(self.resolve, body.get("id", ""), body.get("timeline", ""))}
+
     def progress(self) -> dict:
         return self.reporter.snapshot() if self.reporter else {"steps": [], "done": False}
 
@@ -186,7 +487,8 @@ class App:
             else self.cfg.workflow["project"]["transfer"]
         return creator.Plan(project=naming.normalize(body.get("project", "")),
                             root=body.get("root") or self.cfg.workflow["project"]["default_root"],
-                            groups=list(groups.values()), fmt=self._format(body), transfer=mode)
+                            groups=list(groups.values()), fmt=self._format(body), transfer=mode,
+                            basic_correction=bool(body.get("basic_correction")))
 
     # ------------------------------------------------------------------ open project
     def current(self) -> dict:
@@ -203,6 +505,7 @@ class App:
             # made by an older davigen or on another Mac: list it with the others
             filesystem.register_project(proj.GetName(), base, PM_FOLDER)
         specs = creator.project_groups(self.cfg, proj) if base else {}
+        cat = catalog.load()
         groups = []
         for g in proj.GetColorGroupsList() or []:
             pre = g.GetPreClipNodeGraph() if hasattr(g, "GetPreClipNodeGraph") else None
@@ -211,7 +514,9 @@ class App:
             if spec:
                 profile = self.cfg.profiles[spec["profile"]]
                 source = transforms.source_for(self.cfg, profile, spec["camera_key"], spec["camera_name"])
-                entry.update(profile=profile.label, camera=spec["camera_name"], source=source.as_dict())
+                photo = catalog.match(self.cfg, spec["camera_name"], catalog=cat) or {}
+                entry.update(profile=profile.label, camera=spec["camera_name"], source=source.as_dict(),
+                             thumb=photo.get("thumb", ""), brand=self.cfg.brand_of(spec["camera_name"]) or "")
             groups.append(entry)
         return {"name": proj.GetName(), "managed": bool(base), "folder": str(base or ""), "groups": groups,
                 "format": info.get("format"), "created": info.get("created", ""),
@@ -333,23 +638,44 @@ def make_handler(app: App):
         "/api/source": app.source,
         "/api/catalog": app.catalog_search,
         "/api/catalog/status": lambda q: app.catalog_info(),
+        "/api/basic/report": app.basic_report,
+        "/api/basic/clip": app.basic_clip,
+        "/api/basic/look": app.basic_look,
+        "/api/project/posters": app.project_posters,
+        "/api/update": lambda q: app.updater.snapshot(),
+        "/api/edit/music": app.music_info,
+        "/api/edit/last": app.edit_last,
     }
     routes_post = {
         "/api/validate": app.validate,
         "/api/preview": app.preview,
         "/api/pick-folder": app.pick_folder,
+        "/api/pick-files": app.pick_files,
         "/api/scan": app.start_scan,
         "/api/create": app.start_create,
         "/api/add": app.start_add,
         "/api/color": app.start_color,
         "/api/assign": app.start_assign,
         "/api/queue": app.start_queue,
+        "/api/basic": app.start_basic,
+        "/api/basic/goto": app.basic_goto,
+        "/api/basic/evaluate": app.start_evaluate,
+        "/api/edit": app.start_edit,
+        "/api/basic/learn": app.basic_learn,
+        "/api/basic/look": app.basic_look_save,
+        "/api/basic/reset": app.start_basic_reset,
+        "/api/basic/carry": app.start_basic_carry,
         "/api/open-project": app.open_project,
         "/api/reveal": app.reveal,
         "/api/vendor-lut": app.vendor_lut,
         "/api/settings": app.set_settings,
         "/api/catalog/refresh": app.catalog_refresh,
         "/api/cameras": app.add_camera,
+        "/api/update/check": lambda b: app.updater.check(),
+        "/api/pick-music": app.pick_music,
+        "/api/edit/preview": app.start_edit_preview,
+        "/api/timeline/open": app.open_timeline,
+        "/api/update/run": app.update_run,
         "/api/heartbeat": lambda b: {"ok": True},
         "/api/quit": lambda b: (app.stop.set(), {"ok": True})[1],
     }
@@ -358,12 +684,46 @@ def make_handler(app: App):
         def log_message(self, *args):
             pass
 
+        def handle(self):
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                super().handle()
+
         def _send(self, code: int, body: bytes, ctype: str = "application/json"):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(body)
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):   # the page moved on
+                self.wfile.write(body)
+
+        def _send_file(self, path: Path, ctype: str):
+            """A file with byte ranges, so a <video> can seek."""
+            size = path.stat().st_size
+            match = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "")
+            start, end = 0, size - 1
+            if match and (match.group(1) or match.group(2)):
+                if match.group(1):
+                    start = int(match.group(1))
+                    end = int(match.group(2)) if match.group(2) else size - 1
+                else:
+                    start = max(0, size - int(match.group(2)))
+                end = min(end, size - 1)
+            self.send_response(206 if match else 200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(end - start + 1))
+            if match:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.end_headers()
+            with path.open("rb") as fh, contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                fh.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = fh.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
 
         def _json(self, data, code: int = 200):
             self._send(code, json.dumps(data, ensure_ascii=False, default=str).encode())
@@ -383,6 +743,49 @@ def make_handler(app: App):
                     return self._json(data)
                 except Exception as e:  # noqa: BLE001 - report instead of dropping the connection
                     return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
+            if url.path == "/basic/preview.png":
+                # an <img> can't send the token header, so it comes as a query parameter here
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                try:
+                    return self._send(200, app.basic_preview(query), "image/png")
+                except Superseded:
+                    return self._send(409, b"superseded", "text/plain")
+                except Exception as e:  # noqa: BLE001
+                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
+            if url.path == "/basic/live.png":
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                png = app.reporter.images.get(int((query.get("n") or ["0"])[0] or 0)) if app.reporter else None
+                return self._send(200, png, "image/png") if png else self._send(404, b"gone", "text/plain")
+            if url.path == "/basic/look.png":
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                try:
+                    return self._send(200, app.basic_look_preview(query), "image/png")
+                except Exception as e:  # noqa: BLE001
+                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
+            if url.path in ("/project/poster.png", "/basic/thumb.png", "/edit/frame.png"):
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                make = {"/project/poster.png": app.project_poster, "/basic/thumb.png": app.basic_thumb,
+                        "/edit/frame.png": app.edit_frame}[url.path]
+                try:
+                    return self._send(200, make(query), "image/png")
+                except Exception as e:  # noqa: BLE001
+                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
+            if url.path == "/edit/preview.mp4":
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                try:
+                    return self._send_file(app.edit_preview_file(), "video/mp4")
+                except Exception as e:  # noqa: BLE001
+                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
             if url.path.startswith("/catalog/thumbs/"):
                 thumb = catalog.thumb_path(url.path.rsplit("/", 1)[-1])
                 if thumb is None:
@@ -417,6 +820,17 @@ def make_handler(app: App):
 _NOLOCK = contextlib.nullcontext()
 
 
+AUDIO_EXT = {".mp3", ".wav", ".aif", ".aiff", ".m4a", ".aac", ".flac", ".ogg", ".caf"}
+
+
+def _is_audio(path: str) -> bool:
+    return bool(path) and Path(path).suffix.lower() in AUDIO_EXT and Path(path).is_file()
+
+
+class Superseded(Exception):
+    """A picture nobody waits for anymore."""
+
+
 class _LocalServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -426,13 +840,14 @@ class _LocalServer(ThreadingHTTPServer):
         self.server_name, self.server_port = self.server_address[:2]
 
 
-def serve(resolve, cfg: Config | None = None, open_browser: bool = True) -> None:
+def serve(resolve, cfg: Config | None = None, open_browser: bool = True, start: str = "") -> None:
+    """start: a view to open right away ("basic" starts Basic Correction on the current timeline)."""
     app = App(resolve, cfg or Config())
     app.recovery = transfer.recover_pending()        # undo transfers a crash left unfinished
     httpd = _LocalServer(("127.0.0.1", 0), make_handler(app))
     port = httpd.server_address[1]
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{port}/?token={app.token}"
+    url = f"http://127.0.0.1:{port}/?token={app.token}" + (f"#{start}" if start else "")
     DATA_DIR.mkdir(exist_ok=True)
     (DATA_DIR / "last_session.txt").write_text(url + "\n", encoding="utf-8")
     if open_browser:
@@ -445,3 +860,19 @@ def serve(resolve, cfg: Config | None = None, open_browser: bool = True) -> None
                 break
     finally:
         httpd.shutdown()
+
+
+def _look_samples(record: dict, count: int = 4) -> list[dict]:
+    """Clips that show a look well: the longest shot of the biggest scenes, one per camera group first."""
+    return [{"id": e["id"], "name": e["name"], "group": e.get("group", "")} for e in posters.pick(record, count)]
+
+
+def _basic_status(timeline, record: dict) -> dict:
+    """How far the current timeline is: clips, clips with DAVIGEN_AUTO, and the look of the last run."""
+    from .basic import run as basic, write  # noqa: PLC0415
+    if timeline is None:
+        return {"timeline": "", "clips": 0, "corrected": 0, "last_look": {}}
+    items = [ti for ti in basic._video_items(timeline) if ti.GetMediaPoolItem()]
+    corrected = sum(1 for ti in items if write.AUTO in (ti.GetVersionNameList(0) or []))
+    return {"timeline": timeline.GetName(), "clips": len(items), "corrected": corrected,
+            "last_look": record.get("look", {}), "last_run": record.get("date", "")}

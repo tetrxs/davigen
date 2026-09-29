@@ -42,6 +42,10 @@ class ClipInfo:
     created: str = ""
     lens: str = ""
     iso: str = ""
+    fnumber: float = 0.0            # exposure data for Basic Correction (0 / "" = not recorded)
+    exposure_time: float = 0.0      # seconds
+    white_balance: str = ""         # "Auto", "Manual", "Daylight", …
+    kelvin: int = 0
     notes: list[str] = field(default_factory=list)
     error: str = ""
 
@@ -109,6 +113,7 @@ def analyse(path: str, cfg: Config, tags: dict) -> ClipInfo:
     info.bit_depth = mediainfo.bit_depth(path) or _ffprobe_bit_depth(path) or 8
     info.iso = mediainfo.first(tags, "ISO", "ISOSensitivity")
     info.lens = mediainfo.first(tags, "LensModel", "LensType", "LensID")
+    exposure(info, tags)
 
     info.make = mediainfo.first(tags, "Make", "Manufacturer", "DeviceManufacturer")
     info.model = mediainfo.first(tags, "Model", "CameraModelName", "ModelName", "DeviceModelName", "Encoder")
@@ -123,6 +128,26 @@ def analyse(path: str, cfg: Config, tags: dict) -> ClipInfo:
     _resolve_camera(info, cfg)
     _resolve_profile(info, cfg, hint)
     return info
+
+
+def exposure(info: ClipInfo, tags: dict) -> ClipInfo:
+    """Aperture, shutter, white balance mode and Kelvin, where the camera wrote them (Lumix does, DJI doesn't)."""
+    info.fnumber = mediainfo.number(mediainfo.first(tags, "FNumber"))
+    info.exposure_time = _seconds(mediainfo.first(tags, "ExposureTime", "ShutterSpeed"))
+    info.white_balance = mediainfo.first(tags, "WhiteBalance")
+    info.kelvin = int(mediainfo.number(mediainfo.first(tags, "ColorTempKelvin", "ColorTemperature", "WBTemperature")))
+    return info
+
+
+def _seconds(value: str) -> float:
+    """'1/50' -> 0.02, '0.5' -> 0.5, '' -> 0."""
+    try:
+        if "/" in value:
+            num, den = value.split("/", 1)
+            return float(num) / float(den)
+        return float(value) if value else 0.0
+    except (ValueError, ZeroDivisionError):
+        return 0.0
 
 
 def _iso(value: str) -> str:

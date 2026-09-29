@@ -181,3 +181,271 @@ codec = "H264"
 folder = "05_EXPORTS/07_1X1"
 filename = "{project}_SOCIAL_1X1_1080_v001"
 default = false
+
+# Basic Correction (docs/concepts/BASIC_CORRECTION.md). Every threshold lives here, not in the code;
+# the values are first guesses until the evaluation (plan step 09) tunes them on hand-graded clips.
+# Stops are relative to 18 % grey, fractions are of the frame, angles in degrees. Flag thresholds were set on
+# 57 real clips (Lumix V-Log + DJI D-Log M, 2026-09-28) so that they flag the unusual, not every hand-held shot.
+[basic_correction]
+wizard_default = true              # the New project wizard's 'Basic correction' checkbox starts ticked
+samples = { min = 5, per_seconds = 4, max = 12 }
+analysis_width = 480
+confidence_flag_below = 0.6
+
+[basic_correction.measure]
+centre_sigma = 0.35                 # soft centre weighting: Gaussian sigma in fractions of frame width and height
+black_stops = 5.0                   # darker than grey − 5 stops counts as near black
+clip_tolerance = 0.002              # DaVinci Intermediate distance to the clip's maximum that still counts as clipped
+clip_min_fraction = 0.003           # a maximum only counts as a clip level if this much of the clip sits on it
+midtone_stops = 2.5                 # white balance uses pixels within ± this of the frame's key
+skin = { hue = [110, 136], chroma = [0.03, 0.22], luma = [0.15, 0.90], min_fraction = 0.02, flag_fraction = 0.05, line = 123, max_off = 8 }
+high_key = { min_stops = 0.7, max_shadow_fraction = 0.05, max_chroma = 15 }
+low_key = { min_black_fraction = 0.35, min_bright_fraction = 0.08 }
+white_balance = { minkowski_p = 6, edge_p = 6, achromatic_top = 0.1, achromatic_max_angle = 3.0, iterations = 3, learned = true }
+dominant_hue = { bin = 30, min_chroma = 0.04 }
+haze = { max_range_stops = 5.0, max_local_contrast = 0.012 }
+
+[basic_correction.flags]
+clipped = 0.03                      # "clipped highlights"
+wb_spread = 12.0                    # "no neutral surfaces": classic estimators disagree by more than this …
+wb_disagree_learned = 8.0           # … or, with the learned model, it and the classic median by more than this …
+achromatic_min = 0.01               # … or fewer achromatic pixels than this
+dominant = 0.5                      # "dominant colour"
+mixed_light = 14.0                  # "mixed light": halves of the frame disagree by more than this
+exposure_spread = 3.3               # "changes within clip", in stops (hand-held walks and pans vary a lot) …
+mired_spread = 150                  # … or in mired (10⁶/K; 150 ≈ 4000 → 10000 K, i.e. sun to shade and sky)
+night_ev = 5.0                      # EV100 below this is night
+
+# Corrections per node (plan step 05). Stops relative to 18 % grey, display values 0–1.
+[basic_correction.exposure]
+max_stops_down = 3.0                # log exposed to the right comes down a long way ("limit reached" beyond) …
+max_stops_up = 1.5                  # … lifting underexposed footage lifts its noise
+# the key's target moves with the headroom (stops from key to the 99.5th percentile): above grey for a bright,
+# flat scene, below for bright highlights over a darker subject. Fitted on MIT-Adobe FiveK (1,352 raws, 21 cameras,
+# scripts/fivek_targets.py): expert C gives final key = −0.64 × (headroom − 2.7), R² 0.54; experts A, B, D, E
+# −0.56 … −0.65 and 2.6 … 2.8. 0 switches it off (the key always goes to grey).
+headroom_weight = 0.64
+headroom_typical = 2.7
+headroom_max = 1.0                  # the target moves at most this far from grey
+clipped_white = 0.9                 # darkening stops where the camera's clip level would drop below this display value
+skin_ire = [60, 70]                 # skin after the output LUT, when at least skin.min_fraction of the frame is skin
+skin_max_nudge = 0.5                # skin may move the key-based exposure by this much, no more
+skin_disagree = 1.0                 # skin wanted more than this: lower confidence
+ev_full = 10.0                      # EV100 at or above: daylight, key goes to grey
+ev_low = 5.0                        # EV100 at ev_low: key goes to ev_low_target; below: night
+ev_low_target = -1.0
+night_target = -1.5                 # night is only brightened when it sits more than night_margin below this
+night_margin = 0.5
+high_key_max = 1.0                  # a high-key frame may stay this bright
+low_key_min = -2.5                  # a low-key frame may stay this dark
+
+[basic_correction.white_balance]
+# [from kelvin, strength]: the first row whose kelvin the measured CCT reaches. Warm and cool light is often the
+# point of a shot, so it is only partly neutralised; green/magenta (Duv) is always corrected fully.
+cct_strength = [[7500, 0.6], [5000, 1.0], [3500, 0.6], [0, 0.35]]
+max_duv = 0.02                      # larger green/magenta casts are corrected this far and flagged
+neutral_cct = 6504                  # D65, the white of Rec.709
+
+[basic_correction.contrast]
+range = [0.85, 1.8]
+# Targets by the scene's dynamic range (stops between its 0.5th and 99.5th luminance percentile, as shot): [range,
+# value] rows, interpolated. Measured on 377 expert-C renders of MIT-Adobe FiveK (display luma, Rec.709 γ 2.4):
+# range <5 / 5–6.5 / 6.5–8 / >8 stops → black 0.070 / 0.022 / 0.007 / 0.002, spread 0.56 / 0.65 / 0.71 / 0.80,
+# white 0.83 / 0.88 / 0.91 / 0.99. Stills are looked at one by one; for video the blacks are kept a little
+# higher and the spread a little narrower (scenes cut together, drone LUTs bring their own contrast).
+black_by_range = [[4.0, 0.08], [6.0, 0.03], [8.0, 0.018]]     # 0.5th percentile of display luma
+black_tolerance = 0.01              # the black may sit this far either side of it
+spread_by_range = [[4.0, 0.58], [6.0, 0.63], [8.0, 0.68]]     # 5th to 95th percentile of display luma
+power_range = [0.9, 1.6]            # the toe: above 1 the shadows go down further than the mids
+crushed_share = 0.015               # at most this share of the frame may end under 1.2 % luma (solid black)
+white_max = 0.95                    # exposure only brightens while the 99.5th percentile stays under this
+white_target = 0.9                  # contrast keeps the whites around here, as experts do …
+white_ceiling = 0.98                # … and never pushes them over this (or over where the camera put them)
+max_grey_shift = 0.5                # when the whites hold the contrast back, the mids may drop at most this (stops)
+
+[basic_correction.saturation]
+range = [0.85, 1.25]
+chroma = [12, 26]                   # target mean CIELAB C* of the display image
+
+[basic_correction.confidence]
+# what each finding takes off a node's confidence (1 = sure)
+clipped = 0.3
+changes = 0.3
+key = 0.3
+night = 0.2
+limit = 0.2
+skin_disagree = 0.2
+wb_spread_free = 6.0                # estimator disagreement that is normal on real scenes …
+wb_spread_per_degree = 0.06         # … and what each degree beyond it costs
+wb_disagree_free = 2.0              # the same with the learned model: learned vs classic up to this is normal …
+wb_disagree_per_degree = 0.08       # … each degree beyond costs this (median error 0.8° below 2°, 4° above 8°)
+achromatic = 0.4
+dominant = 0.4
+mixed_light = 0.3
+haze = 0.3
+
+# Changes within a clip (concept §14): a tunnel exit, a cloud, a pan from shade into sun get keyframes on nodes
+# 01 and 02. Small moves around the shot's median are composition, not light, and stay alone.
+[basic_correction.dynamic]
+enabled = true
+min_change_stops = 1.5              # the key must move this much within the shot (one-sample outliers dropped) …
+min_change_mired = 30               # … or the light this much (only with a confident white balance)
+min_wb_confidence = 0.6
+dead_stops = 0.75                   # moves up to this around the shot's median are left alone …
+dead_mired = 15
+follow = 0.75                       # … beyond it, this share is corrected (1 evens it out; less keeps a tunnel darker)
+wb_follow = 0.8
+max_stops_up = 3.0                  # a moment (a tunnel) may be lifted this far; a whole clip only exposure.max_stops_up
+hold_percentile = 97.0              # a lifted moment may push the brightest 3 % (a tunnel's exit, lamps) to white
+smooth_seconds = 0.5                # moments are averaged over this long (a hand-ridden exposure, not a jump) …
+max_stops_per_second = 3.0          # … and never change faster than this
+contrast_dead = 0.25                # a moment's own contrast within this of the clip's stays with the clip …
+contrast_follow = 0.7               # … beyond it this share of the difference is followed …
+contrast_min_change = 0.1           # … and contrast gets keyframes only when a moment then moves this far …
+max_contrast_per_second = 0.3       # … changing at most this much per second
+refine_step_stops = 0.4             # neighbouring samples further apart than this get more samples in between …
+refine_step_mired = 20
+refine_frames = 6                   # … this many per gap, in up to refine_passes extra renders
+refine_passes = 2
+tolerance_stops = 0.05              # a keyframe goes where a straight line between its neighbours is further off than this
+max_keyframes = 16
+
+[basic_correction.scenes]
+gap_minutes = 10                    # a longer pause between recordings starts a new scene
+split_ev = 3.0                      # … so does a jump in EV100 …
+split_cct = 1500                    # … or in illuminant CCT between neighbours with good white balance
+pull_to_scene = 0.3                 # confident clips move this far towards the scene's reference
+pull_fixed_wb = 0.7                 # with the same manual Kelvin on every shot, white balance leans this far on the scene
+pull_chroma = 0.5                   # colourfulness moves this far to the scene's median (a drone's LUT is more saturated)
+pull_to_project = 0.5               # brightness and colourfulness move this far to the whole timeline's (set by the look)
+
+# The look (concept §15): a project's choice, set in Basic correction's setup and stored with the project
+# (00_ADMIN/PROJECT_INFO/basic_correction/look.json). These are the defaults for a new project.
+[basic_correction.look]
+brightness = "even"
+contrast = "medium"
+warmth = "neutral"
+saturation = "natural"
+
+[basic_correction.looks.brightness.darker]
+label = "Darker"
+exposure_offset = -0.5             # stops, on top of the even level
+headroom_weight = 0.2               # the highlight target (exposure.headroom_*) only a little …
+headroom_max = 0.4
+pull_to_project = 0.5               # … and every shot pulled half way to the whole timeline's brightness
+about = "Half a stop down: moodier, richer colours."
+
+[basic_correction.looks.brightness.even]
+label = "Even"
+exposure_offset = 0.0
+headroom_weight = 0.2
+headroom_max = 0.4
+pull_to_project = 0.5
+about = "Every shot at the same brightness – easy to cut."
+
+[basic_correction.looks.brightness.brighter]
+label = "Brighter"
+exposure_offset = 0.5
+headroom_weight = 0.2
+headroom_max = 0.4
+pull_to_project = 0.5
+about = "Half a stop up: light and airy."
+
+[basic_correction.looks.contrast.soft]
+label = "Soft"
+black_shift = 0.03                  # added to contrast.black_by_range …
+spread_shift = -0.09                # … to contrast.spread_by_range …
+white_shift = -0.03                 # … and to contrast.white_target
+about = "Open shadows, gentle tones: documentary, interviews."
+
+[basic_correction.looks.contrast.medium]
+label = "Medium"
+black_shift = 0.0
+spread_shift = 0.0
+white_shift = 0.0
+about = "Clean blacks, calm whites: the usual start."
+
+[basic_correction.looks.contrast.strong]
+label = "Strong"
+black_shift = -0.015
+spread_shift = 0.08
+white_shift = 0.04
+about = "Deep blacks, punchy mids: action, cinematic."
+
+[basic_correction.looks.warmth.cool]
+label = "Cool"
+kelvin = 800                        # added to the white every light is balanced to (lower: warmer picture)
+about = "Crisp and modern: cities, winter, blue hour."
+
+[basic_correction.looks.warmth.neutral]
+label = "Neutral"
+kelvin = 0
+about = "White is white – what matching cameras needs."
+
+[basic_correction.looks.warmth.warm]
+label = "Warm"
+kelvin = -700
+about = "Golden, summery, healthy skin."
+
+[basic_correction.looks.saturation.muted]
+label = "Muted"
+chroma_scale = 0.8                 # multiplies saturation.chroma
+about = "Calm and filmic."
+
+[basic_correction.looks.saturation.natural]
+label = "Natural"
+chroma_scale = 1.0
+about = "Colours as they were."
+
+[basic_correction.looks.saturation.rich]
+label = "Rich"
+chroma_scale = 1.22
+about = "Vivid, the travel-video look."
+
+# Learning from your grades (concept §13): 'Compare with my grade' → 'Learn from it' moves the targets towards your
+# own versions. What was learned is stored per user in data/basic_learned.json; delete that file to forget it.
+[basic_correction.learning]
+rate = 0.5                          # share of the median difference taken over per comparison
+max_exposure = 1.0                  # the learned offsets never go beyond these
+max_kelvin = 1500
+max_black = 0.03
+chroma = [0.7, 1.4]
+
+# Edit Assist (docs/concepts/EDIT_ASSIST.md): selects, beat markers, rough cut to music.
+[edit_assist.selects]
+sharp_rel = [0.35, 0.75]            # sharpness relative to the shot around it: unusable … fully good
+sharp_window = 5.0                  # seconds either side that "the shot around it" means
+blur_abs = 0.01                     # below this absolute sharpness a frame is blurred whatever the clip
+shake = [0.08, 0.35]                # jitter in frame widths per second: fine … bad
+pan_speed = [0.6, 1.4]              # camera motion in frame widths per second: fine … whip pan
+dark = 0.04                         # mean luma below this: dark / covered
+no_detail = 0.002                   # mean gradient below this: nothing in frame
+unusable_below = 0.2
+unusable_min = 1.0                  # seconds
+good_above = 0.6
+good_min = 2.0
+voice_above = 0.5
+speech_min = 1.5
+
+[edit_assist.selects_timeline]
+max_seconds = 6.0                   # at most this much of each good stretch (from its calmest part)
+min_rating = 0.5
+
+[edit_assist.clip_flags]
+flag_good_seconds = 4.0             # a green flag on clips with at least this much good footage …
+flag_bad_share = 0.5                # … a red one on clips with nothing good and at least this share unusable
+
+[edit_assist.transcribe]
+enabled = true
+model = "mlx-community/whisper-large-v3-turbo"   # Whisper large v3 turbo for MLX (~1.6 GB, downloaded once)
+pad = 0.3                           # seconds added around each speech stretch
+
+[edit_assist.rough_cut]
+bars_calm = 2                       # shot length in bars where the music is calm …
+bars_energetic = 1                  # … and where it is energetic
+energy_split = 0.55                 # section energy (0–1) from which a section counts as energetic
+half_bar_above_bpm = 0              # cut every half bar above this tempo (0 = never)
+max_per_clip = 3                    # shots from one clip at most
+min_gap = 4.0                       # seconds between two shots from the same clip
+skip_speech = true                  # stretches with speech would fight the music
+reorder_window = 3                  # how far a shot may move to avoid two of the same clip in a row (a jump cut)

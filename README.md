@@ -20,6 +20,21 @@ curl -fsSL https://raw.githubusercontent.com/tetrxs/davigen/main/install.sh | zs
 
 Then restart Resolve and choose **Workspace → Scripts → davigen**.
 
+![davigen: the open project with frames from its footage, its colour groups and what's next](docs/images/overview.jpg)
+
+Beyond the setup, davigen gives every clip a **first grade** and cuts a **first edit**:
+
+- **Basic correction** brings exposure, white balance, contrast and saturation of every clip to one look you
+  choose once – with keyframes where the light changes within a shot – in its own grade version, so your grade
+  stays untouched.
+- **Edit assist** watches all footage, marks good, unusable and spoken stretches, and, with a song, builds a
+  rough cut on the beat in your edit timeline – whole song or a 30/60/90 s reel – which you can watch in davigen
+  before opening it in Resolve.
+
+| Choose the look | See what was done, clip by clip | Cut to music |
+| --- | --- | --- |
+| ![Basic correction: look setup with before/after](docs/images/basic.jpg) | ![Report with the timeline as a film strip](docs/images/report.jpg) | ![Edit assist: song, length, pace and the rough cut](docs/images/edit.jpg) |
+
 ---
 
 ## Contents
@@ -51,6 +66,8 @@ The day-to-day editing guide (which timeline is for what, how to grade, how to d
 | **Bins** | `01_FOOTAGE/<CAMERA>`, selects, timelines, audio, graphics, PowerGrades … Clips get a clip color and keywords, and the camera and profile are written to their metadata. |
 | **Timelines** | `TL_01_ASSEMBLY` holds all clips in shooting order. `TL_02_EDIT` and `TL_03_MASTER` are at master resolution. There is one `TL_0N_DELIVERY_…` timeline per extra delivery format. Every timeline has named tracks. |
 | **Color** | One color group per camera and profile (`G_LUMIX_S1II_VLOG`, `G_DJI_AIR3_DLOGM`). **Group Pre-Clip** turns the camera log into DaVinci Wide Gamut. **Group Post-Clip** turns that into Rec.709 with DaVinci tone mapping. Each clip gets six labelled, empty nodes (`01_EXPOSURE … 06_FINISH`). |
+| **Basic correction** | Measures every clip (rendered by Resolve itself, in the working space) and fills `01_EXPOSURE … 04_SATURATION` with exposure, white balance, a real black point and saturation, matched per scene and across cameras. Where the light changes inside a clip (a tunnel, a cloud, shade to sun) it writes keyframes. Everything goes into a grade version `DAVIGEN_AUTO`; your own grade is never touched. Unsure clips get a marker, and the report shows every clip before and after, with what was measured and why. See [docs/WORKFLOW.md §5](docs/WORKFLOW.md#5-grading). |
+| **Edit assist** | Watches every clip once: green markers on good stretches, red on unusable ones (pocket, blur, shake, whip pans), blue where someone speaks – on the clips themselves, so they show in every timeline. With a song (chosen and analysed in davigen) it marks bars and sections and builds a first rough cut on the beat in your edit timeline – the whole song or its most energetic 30, 60 or 90 s, at a calm, musical or fast pace – plus a graded preview video to watch before opening Resolve. See [docs/concepts/EDIT_ASSIST.md](docs/concepts/EDIT_ASSIST.md). |
 | **Deliver** | Render presets and output folders for the master (ProRes 422 HQ), 16:9 UHD (H.265) and 9:16 1080 (H.264), with 16:9 HD, 4:5 and 1:1 as options. The whole set can be queued with one click. |
 
 The home screen also looks after the project that is open in Resolve:
@@ -90,11 +107,12 @@ Outside that folder the installer writes only three things:
 
 | What | Where | Why |
 |---|---|---|
-| Menu entry | `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/davigen.py` | makes davigen appear under Workspace → Scripts |
+| Menu entries | `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/davigen.py` and `davigen Basic Correction.py` | make davigen appear under Workspace → Scripts |
 | LaunchAgent | `~/Library/LaunchAgents/com.davigen.python.plist` | sets `PYTHON3HOME` at login, so Resolve can find davigen's Python |
 | LUTs | `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/davigen/` | the input and output transforms the color groups use |
 
-**Update:** run the same one-liner again. It replaces the code and keeps `data/` and `runtime/`.
+**Update:** *Settings → Update now* in davigen, or run the same one-liner again. Both replace the code and keep
+`data/` and `runtime/`; start davigen again afterwards.
 
 **Uninstall:**
 
@@ -131,10 +149,16 @@ Open Resolve, then choose **Workspace → Scripts → davigen**. A browser windo
 
    davigen suggests the format of your footage. It warns about frame-rate mismatches, for example 59.94 fps drone
    clips in a 25 fps project. In Resolve Free it shows the resolution the project will get.
-5. **Review:** every folder, timeline, group and delivery before anything is created.
+5. **Review:** every folder, timeline, group and delivery before anything is created, and the **Basic
+   correction** checkbox: a measured first pass of exposure, white balance, contrast and saturation in a grade
+   version `DAVIGEN_AUTO`.
 
 You then see each step's progress. The run ends with **Left to do in Resolve**: the few things Resolve's scripting
 API cannot do, such as setting the playback frame rate or generating proxies.
+
+**Basic correction** on the home screen (or **Workspace → Scripts → davigen Basic Correction**) runs the same
+first pass on the timeline that is open in Resolve, with a report of every clip: click one for its before and after,
+the measurements, the values written, the reasons, and the exposure over the clip with its keyframes.
 
 ## The color pipeline
 
@@ -263,6 +287,8 @@ It uses the internet only in these cases:
 - **Online sources**, only after you allow them on first start:
   - the camera catalog, from the Wikidata query service and Wikimedia Commons thumbnails
   - manufacturer LUT catalogs, currently DJI's public download center
+- **Transcription** (Edit assist, only when you tick *Transcribe speech*): mlx-whisper from PyPI into davigen's
+  Python, and the Whisper model from Hugging Face, once. Transcribing itself runs on your Mac.
 
 Nothing about your footage or projects leaves your Mac.
 
@@ -287,6 +313,14 @@ python3 -m venv .venv && .venv/bin/pip install pytest pyflakes -r requirements.t
 .venv/bin/python scripts/dev_server.py --open   # the UI against a fake Resolve
 ```
 
+The UI is a React app (shadcn/ui on Base UI, Tailwind) in `web/`. It builds into `davigen/ui/`, which is committed,
+so installing davigen needs no Node:
+
+```bash
+cd web && npm install && npm run build     # rebuilds davigen/ui/
+npm run dev                                # hot reload; /api is proxied to a davigen on port 8765
+```
+
 - Scanner tests against real footage run when `DAVIGEN_SAMPLE_FOOTAGE` points to a folder of clips.
 - `scripts/scrub_drx.py` strips gallery paths and footage thumbnails from a grade still before it goes into
   `templates/drx/`.
@@ -299,7 +333,8 @@ python3 -m venv .venv && .venv/bin/pip install pytest pyflakes -r requirements.t
 - **`color.py`, `transforms.py`, `colormath.py`, `drx.py`:** color pipeline
 - **`scanner.py`, `mediainfo.py`:** metadata
 - **`catalog.py`:** camera catalog
-- **`server.py` + `ui/`:** the local web UI
+- **`server.py`:** the local API; **`web/`** its UI (built into `ui/`)
+- **`posters.py`, `update.py`:** project pictures for the UI, the update check
 
 Pull requests are welcome. By opening one, you agree that your contribution is licensed under the terms below.
 
@@ -321,6 +356,15 @@ Third-party components are downloaded at install time, not redistributed:
 - Python ([python-build-standalone](https://github.com/astral-sh/python-build-standalone), PSF license)
 - [colour-science](https://github.com/colour-science/colour) (BSD-3-Clause)
 - [ExifTool](https://exiftool.org) by Phil Harvey (Perl Artistic License / GPL)
+- for *Transcribe speech* only: [mlx-whisper](https://github.com/ml-explore/mlx-examples) (MIT) and OpenAI's
+  [Whisper](https://github.com/openai/whisper) large-v3-turbo weights (MIT), converted by mlx-community
+- Edit assist uses [ffmpeg](https://ffmpeg.org) if it is installed (e.g. with Homebrew); davigen doesn't ship it
+
+Basic correction's white-balance model (`davigen/basic/models/wb_ccc.npz`) was trained by davigen on the
+[SimpleCube++](https://github.com/Visillect/CubePlusPlus) dataset by Ershov et al. (2020), licensed CC BY 4.0. The
+method is Convolutional Color Constancy (Barron, ICCV 2015). Its exposure target was fitted on the experts' edits in
+[MIT-Adobe FiveK](https://data.csail.mit.edu/graphics/fivek/) (Bychkovsky et al., CVPR 2011, research licence):
+only the resulting numbers are in davigen, no images (`scripts/fivek_targets.py` reproduces them).
 
 Camera data comes from Wikidata (CC0), and photos from Wikimedia Commons under their individual licenses.
 Manufacturer LUTs are downloaded from the manufacturer and remain theirs.
