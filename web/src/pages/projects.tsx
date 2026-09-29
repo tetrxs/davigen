@@ -14,30 +14,11 @@ import { notify, useApp } from "@/lib/app-state"
 import { cn } from "@/lib/utils"
 
 export function ProjectGallery({ limit }: { limit?: number }) {
-  const { navigate, reloadCurrent, running } = useApp()
-  const [projects, setProjects] = React.useState<Project[] | null>(null)
-  const [opening, setOpening] = React.useState("")
-
-  const load = React.useCallback(() => {
-    api<{ projects: Project[] }>("/api/projects")
-      .then((r) => setProjects(r.projects))
-      .catch((e) => {
-        notify("Couldn't list the projects", e.message, "error")
-        setProjects([])
-      })
-  }, [])
-  React.useEffect(load, [load])
-
-  const open = async (p: Project) => {
-    setOpening(p.folder)
-    const r = await api<{ ok: boolean; error?: string }>("/api/open-project", { folder: p.folder })
-    setOpening("")
-    if (!r.ok) return notify("Couldn't open the project", r.error, "error")
-    notify(`${p.name} is open in Resolve`, undefined, "success")
-    await reloadCurrent()
-    load()
-    navigate("overview")
-  }
+  const { navigate, running, projects, openProject, opening, reloadProjects } = useApp()
+  React.useEffect(() => {
+    if (projects !== null) reloadProjects()      // fresh posters and "open" state when the page shows
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const open = openProject
   const reveal = async (p: Project) => {
     const r = await api<{ ok: boolean; error?: string }>("/api/reveal", { path: p.folder })
     if (!r.ok) notify("Couldn't show the folder", r.error, "error")

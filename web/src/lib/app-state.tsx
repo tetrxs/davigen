@@ -1,7 +1,7 @@
 import * as React from "react"
 
 import { toast } from "@/components/ui/toast"
-import { api, type Current, type Info, type Progress } from "@/lib/api"
+import { api, type Current, type Info, type Progress, type Project } from "@/lib/api"
 
 // ------------------------------------------------------------------ routing (hash based: the page is served by Python)
 
@@ -50,6 +50,10 @@ type AppState = {
   clearRun: () => void
   setOnline: (on: boolean) => Promise<void>
   offline: boolean
+  projects: Project[] | null
+  reloadProjects: () => Promise<void>
+  openProject: (p: Project) => Promise<void>
+  opening: string
 }
 
 const Ctx = React.createContext<AppState | null>(null)
@@ -71,6 +75,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [route, setRoute] = React.useState<Route>(readRoute)
   const [run, setRun] = React.useState<Run | null>(null)
   const [offline, setOffline] = React.useState(false)
+  const [projects, setProjects] = React.useState<Project[] | null>(null)
+  const [opening, setOpening] = React.useState("")
   const poll = React.useRef<number | undefined>(undefined)
 
   React.useEffect(() => {
@@ -93,6 +99,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const reloadProjects = React.useCallback(async () => {
+    try {
+      setProjects((await api<{ projects: Project[] }>("/api/projects")).projects)
+    } catch (e) {
+      notify("Couldn't list the projects", (e as Error).message, "error")
+      setProjects((p) => p ?? [])
+    }
+  }, [])
+
+  const openProject = React.useCallback(
+    async (p: Project) => {
+      setOpening(p.folder)
+      try {
+        const r = await api<{ ok: boolean; error?: string }>("/api/open-project", { folder: p.folder })
+        if (!r.ok) return notify("Couldn't open the project", r.error, "error")
+        notify(`${p.name} is open in Resolve`, undefined, "success")
+        await reloadCurrent()
+        await reloadProjects()
+        navigate("overview")
+      } finally {
+        setOpening("")
+      }
+    },
+    [reloadCurrent, reloadProjects, navigate]
+  )
+
   // first load, the '#basic' start from Resolve's menu, and a heartbeat that notices when davigen ended
   React.useEffect(() => {
     let misses = 0
@@ -107,7 +139,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (location.hash === "#basic") history.replaceState(null, "", `${location.pathname}${location.search}#/basic`)
       setRoute(readRoute())
-      reloadCurrent()
+      await reloadCurrent()          // one after the other: Resolve answers one request at a time
+      reloadProjects()
     })()
     const beat = window.setInterval(async () => {
       try {
@@ -122,7 +155,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }, 15000)
     return () => window.clearInterval(beat)
-  }, [reloadCurrent])
+  }, [reloadCurrent, reloadProjects])
 
   const pollProgress = React.useCallback(async () => {
     let p: Progress
@@ -178,6 +211,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     clearRun: () => setRun(null),
     setOnline,
     offline,
+    projects,
+    reloadProjects,
+    openProject,
+    opening,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

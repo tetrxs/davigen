@@ -49,6 +49,10 @@ class App:
         self.resolve_lock = threading.Lock()
         self.updater = update.Updater()
         self._records: dict[Path, tuple[float, dict]] = {}
+        # before | after pictures: made one at a time, outside the Resolve lock, the newest request first
+        self._render_lock = threading.Lock()
+        self._render_gen = 0
+        self._pictures: dict[tuple, bytes] = {}
 
     # ------------------------------------------------------------------ app info
     def info(self) -> dict:
@@ -273,14 +277,31 @@ class App:
         return {"ok": True, **{k: entry.get(k) for k in keep}}
 
     def basic_preview(self, q: dict) -> bytes:
-        """PNG: one frame of a clip before | after DAVIGEN_AUTO."""
+        """PNG: one frame of a clip before | after DAVIGEN_AUTO.
+
+        Scrubbing asks for many frames quickly. Each picture decodes a camera frame, so they are made one at a
+        time and outside the Resolve lock (the rest of the UI keeps answering); a request that a newer one has
+        overtaken while it waited gives up (Superseded), and finished pictures are kept for going back."""
         from .basic import preview  # noqa: PLC0415
-        entry, base = self._basic_entry((q.get("id") or [""])[0])
+        with self.resolve_lock:
+            entry, base = self._basic_entry((q.get("id") or [""])[0])
         if not entry:
             raise FileNotFoundError("unknown clip")
         frames = entry.get("frames") or [entry.get("source_start", 0)]
         frame = int((q.get("frame") or [frames[len(frames) // 2]])[0])
-        return preview.png(preview.before_after(entry, frame, base / "03_WORK" / "ANALYSIS"))
+        key = (entry.get("path"), frame, json.dumps(entry.get("correction", {}).get("nodes"), sort_keys=True))
+        if key in self._pictures:
+            return self._pictures[key]
+        self._render_gen += 1
+        mine = self._render_gen
+        with self._render_lock:
+            if mine != self._render_gen:
+                raise Superseded("a newer picture was asked for")
+            png = preview.png(preview.before_after(entry, frame, base / "03_WORK" / "ANALYSIS"))
+        if len(self._pictures) > 48:
+            self._pictures.pop(next(iter(self._pictures)))
+        self._pictures[key] = png
+        return png
 
     def basic_look(self, q: dict) -> dict:
         """The project's look, the options with what each does, and sample clips of the last report to show them."""
@@ -383,6 +404,7 @@ class App:
             # made by an older davigen or on another Mac: list it with the others
             filesystem.register_project(proj.GetName(), base, PM_FOLDER)
         specs = creator.project_groups(self.cfg, proj) if base else {}
+        cat = catalog.load()
         groups = []
         for g in proj.GetColorGroupsList() or []:
             pre = g.GetPreClipNodeGraph() if hasattr(g, "GetPreClipNodeGraph") else None
@@ -391,7 +413,9 @@ class App:
             if spec:
                 profile = self.cfg.profiles[spec["profile"]]
                 source = transforms.source_for(self.cfg, profile, spec["camera_key"], spec["camera_name"])
-                entry.update(profile=profile.label, camera=spec["camera_name"], source=source.as_dict())
+                photo = catalog.match(self.cfg, spec["camera_name"], catalog=cat) or {}
+                entry.update(profile=profile.label, camera=spec["camera_name"], source=source.as_dict(),
+                             thumb=photo.get("thumb", ""), brand=self.cfg.brand_of(spec["camera_name"]) or "")
             groups.append(entry)
         return {"name": proj.GetName(), "managed": bool(base), "folder": str(base or ""), "groups": groups,
                 "format": info.get("format"), "created": info.get("created", ""),
@@ -553,12 +577,17 @@ def make_handler(app: App):
         def log_message(self, *args):
             pass
 
+        def handle(self):
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                super().handle()
+
         def _send(self, code: int, body: bytes, ctype: str = "application/json"):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(body)
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):   # the page moved on
+                self.wfile.write(body)
 
         def _json(self, data, code: int = 200):
             self._send(code, json.dumps(data, ensure_ascii=False, default=str).encode())
@@ -584,8 +613,9 @@ def make_handler(app: App):
                 if (query.get("t") or [""])[0] != app.token:
                     return self._send(403, b"forbidden", "text/plain")
                 try:
-                    with app.resolve_lock:
-                        return self._send(200, app.basic_preview(query), "image/png")
+                    return self._send(200, app.basic_preview(query), "image/png")
+                except Superseded:
+                    return self._send(409, b"superseded", "text/plain")
                 except Exception as e:  # noqa: BLE001
                     return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
             if url.path == "/basic/live.png":
@@ -643,6 +673,10 @@ def make_handler(app: App):
 
 
 _NOLOCK = contextlib.nullcontext()
+
+
+class Superseded(Exception):
+    """A picture nobody waits for anymore."""
 
 
 class _LocalServer(ThreadingHTTPServer):

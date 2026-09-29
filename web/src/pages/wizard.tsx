@@ -18,7 +18,7 @@ import {
 import { Page, PageHeader } from "@/components/page-header"
 import { Stepper } from "@/components/stepper"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { CameraAvatar } from "@/components/camera-avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -46,7 +46,6 @@ import {
   fmtBytes,
   fmtDuration,
   fpsLabel,
-  img,
   normalizeName,
   type Format,
   type Info,
@@ -82,22 +81,6 @@ const CONFIDENCE: Record<string, [string, "secondary" | "outline" | "destructive
   metadata: ["from metadata", "secondary"],
   inferred: ["inferred", "outline"],
   guess: ["guessed – please check", "destructive"],
-}
-
-function initials(name: string) {
-  return name
-    .replace(/^(Panasonic|DJI|Sony|Canon|Nikon|Fujifilm|Apple|GoPro|Insta360)\s+/i, "")
-    .replace(/LUMIX\s*/i, "")
-    .slice(0, 4)
-}
-
-function CameraAvatar({ name, thumb, className }: { name: string; thumb?: string; className?: string }) {
-  return (
-    <Avatar className={cn("size-14 rounded-xl", className)}>
-      {thumb && <AvatarImage src={img.catalog(thumb)} className="object-contain p-1" />}
-      <AvatarFallback className="rounded-xl text-xs font-medium">{initials(name)}</AvatarFallback>
-    </Avatar>
-  )
 }
 
 function defaultFormat(info: Info): Fmt {

@@ -17,6 +17,7 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 
+import { CameraAvatar } from "@/components/camera-avatar"
 import { Page } from "@/components/page-header"
 import { Poster } from "@/components/poster"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -400,12 +401,17 @@ function ColorGroups() {
             const missing = !g.input_lut && g.source
             return (
               <Item key={g.name} variant="outline">
-                <ItemMedia variant="icon">
-                  {g.input_lut ? (
-                    <CircleCheckIcon className="text-success" />
-                  ) : (
-                    <CircleAlertIcon className="text-destructive" />
-                  )}
+                <ItemMedia>
+                  <div className="relative">
+                    <CameraAvatar name={g.camera || g.name} thumb={g.thumb} className="size-12" />
+                    <span className="absolute -right-1 -bottom-1 rounded-full bg-card p-0.5">
+                      {g.input_lut ? (
+                        <CircleCheckIcon className="size-4 text-success" />
+                      ) : (
+                        <CircleAlertIcon className="size-4 text-destructive" />
+                      )}
+                    </span>
+                  </div>
                 </ItemMedia>
                 <ItemContent>
                   <ItemTitle>

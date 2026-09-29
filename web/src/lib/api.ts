@@ -77,6 +77,8 @@ export type CurrentGroup = {
   profile?: string
   camera?: string
   source?: Source
+  thumb?: string
+  brand?: string
 }
 
 export type Current = {

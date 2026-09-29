@@ -1,7 +1,7 @@
 import * as React from "react"
 import { BrainIcon, DiamondIcon, MonitorPlayIcon, TriangleAlertIcon } from "lucide-react"
 
-import { FadeImage } from "@/components/poster"
+import { FadeImage, SwapImage } from "@/components/poster"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -209,19 +209,28 @@ type ClipDetail = {
 export function ClipSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
   const [d, setD] = React.useState<ClipDetail | null>(null)
   const [frameIdx, setFrameIdx] = React.useState(0)
+  const [shownIdx, setShownIdx] = React.useState(0)
+  // scrubbing: the picture follows once the slider rests for a moment, not for every frame passed on the way
+  React.useEffect(() => {
+    const t = window.setTimeout(() => setShownIdx(frameIdx), 220)
+    return () => window.clearTimeout(t)
+  }, [frameIdx])
   React.useEffect(() => {
     if (!id) return
     setD(null)
     api<ClipDetail>(`/api/basic/clip?id=${encodeURIComponent(id)}`).then((r) => {
       setD(r)
       const series = (r.samples_over_time || []).filter((s) => s.stops !== null)
-      setFrameIdx(Math.floor((series.length ? series.length : (r.frames || []).length) / 2))
+      const mid = Math.floor((series.length ? series.length : (r.frames || []).length) / 2)
+      setFrameIdx(mid)
+      setShownIdx(mid)
     })
   }, [id])
 
   const series = (d?.samples_over_time || []).filter((s) => s.stops !== null && s.stops !== undefined)
   const frames = series.length ? series.map((s) => s.frame) : d?.frames || []
   const frame = frames[Math.min(frameIdx, frames.length - 1)] ?? d?.source_start ?? 0
+  const shownFrame = frames[Math.min(shownIdx, frames.length - 1)] ?? d?.source_start ?? 0
   const goto = async () => {
     const r = await api<{ ok: boolean }>("/api/basic/goto", { id })
     if (!r.ok) notify("That clip isn't on the current timeline anymore", undefined, "error")
@@ -255,7 +264,7 @@ export function ClipSheet({ id, onClose }: { id: string | null; onClose: () => v
           <div className="flex flex-col gap-5 p-4 pt-0">
             <div className="flex flex-col gap-2">
               <div className="overflow-hidden rounded-lg bg-muted">
-                <FadeImage src={img.preview(d.id, frame)} alt="before | after" className="w-full" />
+                <SwapImage src={img.preview(d.id, shownFrame)} alt="before | after" className="w-full" />
               </div>
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Colour group only</span>

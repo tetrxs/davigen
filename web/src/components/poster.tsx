@@ -69,3 +69,36 @@ export function FadeImage({ src, alt = "", className }: { src: string; alt?: str
     />
   )
 }
+
+// A picture that changes often (scrubbing): the last one stays until the next has arrived, with a small spinner.
+export function SwapImage({ src, alt = "", className }: { src: string; alt?: string; className?: string }) {
+  const [shown, setShown] = React.useState("")
+  const [failed, setFailed] = React.useState("")
+  React.useEffect(() => {
+    let live = true
+    const next = new Image()
+    next.onload = () => live && setShown(src)
+    next.onerror = () => live && setFailed(src)
+    next.src = src
+    return () => {
+      live = false
+      next.onload = next.onerror = null
+      next.src = ""                 // the browser drops the request instead of queueing it
+    }
+  }, [src])
+  const loading = shown !== src && failed !== src
+  return (
+    <div className="relative">
+      {shown ? (
+        <img src={shown} alt={alt} className={className} />
+      ) : (
+        <div className={cn("shimmer aspect-[2/0.56] w-full bg-muted", className)} />
+      )}
+      {loading && shown && (
+        <span className="absolute top-2 right-2 rounded-full bg-black/60 p-1.5 backdrop-blur">
+          <span className="block size-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+        </span>
+      )}
+    </div>
+  )
+}

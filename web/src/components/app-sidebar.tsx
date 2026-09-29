@@ -1,18 +1,31 @@
+import * as React from "react"
 import {
+  ChartNoAxesColumnIcon,
+  ChevronRightIcon,
   ClapperboardIcon,
   FolderOpenIcon,
-  LayoutDashboardIcon,
-  ListChecksIcon,
+  HouseIcon,
   LoaderIcon,
+  PaletteIcon,
   PlusIcon,
   ScissorsIcon,
   Settings2Icon,
-  SparklesIcon,
 } from "lucide-react"
 
 import { Poster } from "@/components/poster"
 import { LogoMark, Wordmark } from "@/components/wordmark"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   Sidebar,
   SidebarContent,
@@ -22,28 +35,31 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { Spinner } from "@/components/ui/spinner"
+import type { Project } from "@/lib/api"
 import { useApp, type Route } from "@/lib/app-state"
 
 type Entry = { route: Route; label: string; icon: React.ComponentType; needsProject?: boolean }
 
 const PROJECT: Entry[] = [
-  { route: "overview", label: "Overview", icon: LayoutDashboardIcon },
-  { route: "basic", label: "Basic correction", icon: SparklesIcon, needsProject: true },
-  { route: "report", label: "Report", icon: ListChecksIcon, needsProject: true },
+  { route: "overview", label: "Overview", icon: HouseIcon },
+  { route: "basic", label: "Basic correction", icon: PaletteIcon, needsProject: true },
+  { route: "report", label: "Report", icon: ChartNoAxesColumnIcon, needsProject: true },
   { route: "edit", label: "Edit assist", icon: ScissorsIcon, needsProject: true },
-]
-const LIBRARY: Entry[] = [
-  { route: "projects", label: "Projects", icon: FolderOpenIcon },
-  { route: "new", label: "New project", icon: PlusIcon },
 ]
 
 export function AppSidebar() {
-  const { route, navigate, current, info, run, running } = useApp()
+  const { route, navigate, current, info, run, running, projects, openProject, opening } = useApp()
+  const [confirm, setConfirm] = React.useState<Project | null>(null)
   const managed = !!current?.managed
 
   const item = (e: Entry) => (
@@ -118,7 +134,49 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>Library</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>{LIBRARY.map(item)}</SidebarMenu>
+            <SidebarMenu>
+              <Collapsible defaultOpen render={<SidebarMenuItem />} className="group/collapsible">
+                <SidebarMenuButton
+                  isActive={route === "projects"}
+                  tooltip="Projects"
+                  disabled={running}
+                  onClick={() => navigate("projects")}
+                >
+                  <FolderOpenIcon />
+                  <span>Projects</span>
+                </SidebarMenuButton>
+                {!!projects?.length && (
+                  <CollapsibleTrigger
+                    render={<SidebarMenuAction aria-label="Show projects" />}
+                    className="transition-transform group-data-open/collapsible:rotate-90"
+                  >
+                    <ChevronRightIcon />
+                  </CollapsibleTrigger>
+                )}
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {(projects ?? []).map((p) => (
+                      <SidebarMenuSubItem key={p.folder}>
+                        <SidebarMenuSubButton
+                          isActive={p.open}
+                          render={<button type="button" disabled={running || !!opening} />}
+                          onClick={() => (p.open ? navigate("overview") : setConfirm(p))}
+                          className="w-full"
+                        >
+                          {opening === p.folder ? (
+                            <Spinner />
+                          ) : (
+                            <span className={p.open ? "size-1.5 rounded-full bg-brand" : "size-1.5 rounded-full bg-muted-foreground/40"} />
+                          )}
+                          <span className="truncate">{p.name}</span>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    ))}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </Collapsible>
+              {item({ route: "new", label: "New project", icon: PlusIcon })}
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
@@ -142,6 +200,20 @@ export function AppSidebar() {
         )}
       </SidebarFooter>
       <SidebarRail />
+      <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Open {confirm?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Resolve saves {current?.name || "the current project"} first and then opens {confirm?.name}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirm && openProject(confirm)}>Open in Resolve</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sidebar>
   )
 }
