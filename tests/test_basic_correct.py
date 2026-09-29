@@ -190,8 +190,9 @@ def test_brightening_stops_where_highlights_run_out(out_lut):
 
 
 def test_headroom_moves_the_target(out_lut):
-    """A flat, bright scene stays above grey; bright highlights over a dark subject put the key below it."""
-    cfg = settings.load(None)
+    """A flat, bright scene stays above grey; bright highlights over a dark subject put the key below it
+    (the 'natural' brightness look; 'even' does it only a little)."""
+    cfg = settings.load(None, look={"brightness": "natural"})
     cfg["measure"]["white_balance"]["learned"] = False
     rng = np.random.default_rng(4)
     flat = np.kron(0.18 * np.exp(rng.normal(0, 0.25, (8, 12, 1))) * np.ones(3), np.ones((8, 8, 1)))

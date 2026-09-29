@@ -3,7 +3,8 @@
 Pushing every clip to the same absolute target flattens a sequence. Colorists balance each shot, then match the
 shots of a scene to a hero. Nodes 01 (exposure) and 02 (white balance) are pulled towards the hero; node 04
 (saturation) towards the scene's typical colourfulness, so shots from cameras with more saturated LUTs (drones)
-sit with the rest. Contrast stays per shot: every shot is already solved to the same black level.
+sit with the rest. Then, for the 'even' look, the whole timeline is pulled towards one picture brightness and
+colourfulness. Contrast stays per shot: every shot is solved to the same targets.
 """
 
 from __future__ import annotations
@@ -48,7 +49,56 @@ def match_scenes(shots: list[Shot], settings: dict) -> list[Shot]:
         for shot in scene:
             _pull(shot, hero, sc["pull_to_scene"], sc["pull_fixed_wb"] if fixed_wb else None, threshold)
         _match_colourfulness(scene, sc["pull_chroma"], settings["saturation"]["range"])
+    _match_project(shots, sc.get("pull_to_project", 0.0), settings)
     return shots
+
+
+def _match_project(shots: list[Shot], pull: float, settings: dict) -> None:
+    """The whole timeline at one height (the 'even' look): picture brightness and colourfulness pulled `pull` of
+    the way to the timeline's median. Night, dusk, silhouettes and snow keep theirs – the picture's brightness
+    is evened out, not the world's."""
+    if pull <= 0 or len(shots) < 3:
+        return
+    keep = {ms.NIGHT, ms.HIGH_KEY, ms.LOW_KEY}
+
+    def normal(sh):
+        return not (keep & set(sh.measurement.flags)) and "dusk" not in sh.correction.values.get("exposure_reason", "")
+    base = [sh for sh in shots if normal(sh)]
+    if len(base) < 3:
+        return
+    keys = [sh.measurement.exposure_stops + sh.correction.values["exposure_stops"] for sh in base]
+    target_key = float(np.median(keys))
+    chromas = [sh.correction.values.get("chroma_after", 0.0) for sh in base
+               if sh.correction.values.get("chroma_after", 0.0) > 0 and ms.DOMINANT not in sh.measurement.flags]
+    target_chroma = float(np.median(chromas)) if chromas else 0.0
+    lo_s, hi_s = settings["saturation"]["range"]
+    for sh in base:
+        corr, m, v = sh.correction, sh.measurement, sh.correction.values
+        own = m.exposure_stops + v["exposure_stops"]
+        stops = v["exposure_stops"] + pull * (target_key - own)
+        lo, hi = v.get("exposure_range", [-99.0, 99.0])
+        stops = min(max(stops, min(lo, v["exposure_stops"])), max(hi, v["exposure_stops"]))
+        if abs(stops - v["exposure_stops"]) > 1e-6:
+            old_exp = corr.nodes[c.EXPOSURE]
+            new_exp = c.exposure_cdl(m, stops)
+            if not corr.nodes[c.WHITE_BALANCE].is_identity:
+                # node 02 is exact for node 01's level: move it by what the new level needs, keeping its light
+                cct, duv = v.get("cct_after", m.cct), v.get("duv_after", m.duv)
+                before, _ = c.white_balance_cdl(m, old_exp, cct, duv)
+                after, _ = c.white_balance_cdl(m, new_exp, cct, duv)
+                wb = corr.nodes[c.WHITE_BALANCE]
+                corr.nodes[c.WHITE_BALANCE] = p.Cdl(offset=tuple(float(o + a - b) for o, a, b in
+                                                             zip(wb.offset, after.offset, before.offset)))
+            corr.nodes[c.EXPOSURE] = new_exp
+            sh.notes["exposure_to_timeline"] = stops - v["exposure_stops"]
+            v["exposure_stops"] = stops
+        own_c = v.get("chroma_after", 0.0)
+        if target_chroma > 0 and own_c > 0 and ms.DOMINANT not in m.flags:
+            sat = min(max(v["saturation"] * (own_c + pull * (target_chroma - own_c)) / own_c, lo_s), hi_s)
+            if abs(sat - v["saturation"]) > 1e-3:
+                sh.notes["saturation_to_timeline"] = sat - v["saturation"]
+                v.update(chroma_after=own_c * sat / v["saturation"], saturation=float(sat))
+                corr.nodes[c.SATURATION] = p.Cdl.saturation(sat)
 
 
 def _match_colourfulness(scene: list[Shot], pull: float, sat_range) -> None:

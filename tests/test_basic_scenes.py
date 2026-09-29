@@ -122,3 +122,22 @@ def test_fixed_kelvin_leans_on_scene(out_lut):
     scenes.match_scenes([hero, other], S)
     err_after = p.angle_deg(wb_light_after(other, illum), wb_light_after(hero, illum))
     assert err_after <= err_before * (1 - S["scenes"]["pull_fixed_wb"]) + 0.05
+
+
+def test_even_look_pulls_the_timeline_together(out_lut):
+    """Shots whose corrections land at different brightness move towards one height; spreads shrink."""
+    cfg = settings.load({"basic_correction": {"measure": {"white_balance": {"learned": False}}}},
+                        look={"brightness": "even"})
+    cfg["scenes"]["pull_to_scene"] = 0.0
+    shots = []
+    for n, key in enumerate((0.18 * 2 ** 0.4, 0.18, 0.18 * 2 ** -1.0, 0.18 * 2 ** 0.2)):
+        sh = shot(grey_scene(seed=n, key=key), out_lut, n, f"2026-09-25T1{n}:00:00Z", cfg=cfg)   # four scenes
+        shots.append(sh)
+    # make the corrections leave the shots at different heights, as a limit or a skin nudge would
+    for sh, st in zip(shots, (-0.8, 0.0, 0.5, -0.3)):
+        sh.correction.values["exposure_stops"] += st
+        sh.correction.nodes[c.EXPOSURE] = c.exposure_cdl(sh.measurement, sh.correction.values["exposure_stops"])
+    before = [sh.measurement.exposure_stops + sh.correction.values["exposure_stops"] for sh in shots]
+    scenes.match_scenes(shots, cfg)
+    after = [sh.measurement.exposure_stops + sh.correction.values["exposure_stops"] for sh in shots]
+    assert np.ptp(after) < 0.7 * np.ptp(before)

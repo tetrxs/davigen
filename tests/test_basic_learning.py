@@ -50,3 +50,16 @@ def test_score_signs():
     assert sc.kelvin < -200 and sc.chroma > 1.0
     lifted = evaluate.score(disp, np.clip(disp + 0.03, 0, 1))
     assert lifted.black == pytest.approx(0.03, abs=0.005)
+
+
+def test_looks_change_the_targets():
+    base = settings.load(None, learned=False)
+    assert base["look_applied"] == {"brightness": "even", "contrast": "medium", "warmth": "neutral", "saturation": "natural"}
+    soft = settings.load(None, learned=False, look={"contrast": "soft", "warmth": "warm", "saturation": "rich",
+                                                    "brightness": "natural"})
+    assert soft["contrast"]["black_by_range"][0][1] > base["contrast"]["black_by_range"][0][1]
+    assert soft["contrast"]["spread_by_range"][0][1] < base["contrast"]["spread_by_range"][0][1]
+    assert soft["white_balance"]["look_kelvin"] < 0 and soft["saturation"]["chroma"][0] > base["saturation"]["chroma"][0]
+    assert soft["exposure"]["headroom_weight"] > base["exposure"]["headroom_weight"]
+    odd = settings.load(None, learned=False, look={"contrast": "nonsense"})
+    assert odd["look_applied"]["contrast"] == "medium"

@@ -317,6 +317,85 @@ split_cct = 1500                    # … or in illuminant CCT between neighbour
 pull_to_scene = 0.3                 # confident clips move this far towards the scene's reference
 pull_fixed_wb = 0.7                 # with the same manual Kelvin on every shot, white balance leans this far on the scene
 pull_chroma = 0.5                   # colourfulness moves this far to the scene's median (a drone's LUT is more saturated)
+pull_to_project = 0.5               # brightness and colourfulness move this far to the whole timeline's (set by the look)
+
+# The look (concept §15): a project's choice, set in Basic correction's setup and stored with the project
+# (00_ADMIN/PROJECT_INFO/basic_correction/look.json). These are the defaults for a new project.
+[basic_correction.look]
+brightness = "even"
+contrast = "medium"
+warmth = "neutral"
+saturation = "natural"
+
+[basic_correction.looks.brightness.even]
+label = "Even"
+headroom_weight = 0.2               # the highlight target (exposure) only a little …
+headroom_max = 0.4
+pull_to_project = 0.5               # … and every shot pulled half way to the whole timeline's brightness
+about = "Every shot at the same picture brightness, whatever the camera did: what an editor wants to cut. Night, dusk, silhouettes and snow keep their character."
+
+[basic_correction.looks.brightness.natural]
+label = "Natural"
+headroom_weight = 0.64              # as the FiveK experts (exposure.headroom_*)
+headroom_max = 1.0
+pull_to_project = 0.2
+about = "As photo retouchers do it (MIT-Adobe FiveK): a bright, flat scene stays brighter, a backlit one darker. More mood, less even."
+
+[basic_correction.looks.contrast.soft]
+label = "Soft"
+black_shift = 0.02                  # added to contrast.black_by_range …
+spread_shift = -0.06                # … to contrast.spread_by_range …
+white_shift = -0.02                 # … and to contrast.white_target
+about = "Open shadows and gentle tones: documentary, interviews, a light holiday look."
+
+[basic_correction.looks.contrast.medium]
+label = "Medium"
+black_shift = 0.0
+spread_shift = 0.0
+white_shift = 0.0
+about = "Clean blacks, whites under 90 %: where a colorist usually starts for travel and documentary."
+
+[basic_correction.looks.contrast.strong]
+label = "Strong"
+black_shift = -0.01
+spread_shift = 0.05
+white_shift = 0.03
+about = "Deep blacks and punchy mids: action, sport, a cinematic look."
+
+[basic_correction.looks.warmth.cool]
+label = "Cool"
+kelvin = 600                        # added to the white every light is balanced to (lower: warmer picture)
+about = "Crisp and modern: winter, cities, blue hour."
+
+[basic_correction.looks.warmth.neutral]
+label = "Neutral"
+kelvin = 0
+about = "White is white. The safe start, and what matching several cameras needs."
+
+[basic_correction.looks.warmth.slightly_warm]
+label = "Slightly warm"
+kelvin = -300
+about = "The classic travel and summer feel; skin looks healthy."
+
+[basic_correction.looks.warmth.warm]
+label = "Warm"
+kelvin = -700
+about = "Golden hour, nostalgic, Mediterranean."
+
+[basic_correction.looks.saturation.muted]
+label = "Muted"
+chroma_scale = 0.85                 # multiplies saturation.chroma
+about = "Calm and filmic."
+
+[basic_correction.looks.saturation.natural]
+label = "Natural"
+chroma_scale = 1.0
+about = "Colours as they were."
+
+[basic_correction.looks.saturation.rich]
+label = "Rich"
+chroma_scale = 1.15
+about = "Vivid: the social-media travel look."
 
 # Learning from your grades (concept §13): 'Compare with my grade' → 'Learn from it' moves the targets towards your
 # own versions. What was learned is stored per user in data/basic_learned.json; delete that file to forget it.

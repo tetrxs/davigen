@@ -66,6 +66,52 @@ def decode(path: str, frame: int, fps: float, width: int) -> np.ndarray | None:
     return np.frombuffer(raw, dtype="<u2").reshape(len(raw) // (width * 6), width, 3).astype("float64") / 65535.0
 
 
+_FRAMES: dict[tuple, np.ndarray] = {}
+
+
+def _camera_frame(entry: dict, frame: int, cache_folder: Path, width: int) -> np.ndarray:
+    """Camera code values of a frame: ffmpeg, or the nearest cached analysis thumbnail. Kept in memory."""
+    key = (entry["path"], frame, width)
+    if key not in _FRAMES:
+        log = decode(entry["path"], frame, float(entry.get("clip_fps") or 25.0), width)
+        if log is None:
+            thumbs = sampling.Cache(cache_folder).load(entry["path"])
+            if not thumbs:
+                raise FileNotFoundError("no ffmpeg and no cached frames for this clip")
+            log = sampling.to_float(thumbs[min(thumbs, key=lambda f: abs(f - frame))])
+        if len(_FRAMES) > 64:
+            _FRAMES.clear()
+        _FRAMES[key] = log
+    return _FRAMES[key]
+
+
+def look_preview(entry: dict, cache_folder: Path, workflow: dict, look: dict | None, width: int = 360) -> np.ndarray:
+    """One clip corrected with a look (concept §15), from its cached samples: display RGB of its middle sample.
+    look None: the colour group only (the 'before')."""
+    from . import correct as c, measure as ms, settings as settings_mod  # noqa: PLC0415
+    in_lut, out_lut = (Path(x) for x in entry["luts"])
+    frames = entry.get("frames") or []
+    frame = frames[len(frames) // 2] if frames else entry.get("source_start", 0)
+    dwg = p.apply_lut(_camera_frame(entry, frame, cache_folder, width), in_lut)
+    if look is None:
+        return np.clip(p.apply_lut(dwg, out_lut), 0, 1)
+    s = settings_mod.load(workflow, look=look)
+    key = ("measured", entry["path"], tuple(frames))
+    if key not in _FRAMES:                  # the measurement doesn't depend on the look: once per clip
+        cached = sampling.Cache(cache_folder).load(entry["path"])
+        use = [f for f in frames if f in cached]
+        use = use[:: max(1, len(use) // 5)]             # five samples are plenty for a picture
+        thumbs = [p.apply_lut(sampling.to_float(cached[f]), in_lut) for f in use]
+        if not thumbs:
+            raise FileNotFoundError("no analysed frames for this clip – run Basic correction once")
+        meta = ms.ClipMeta(**{k: v for k, v in (entry.get("meta") or {}).items()
+                              if k in ms.ClipMeta.__dataclass_fields__})
+        _FRAMES[key] = (thumbs, ms.measure(thumbs, meta, out_lut, s))
+    thumbs, m = _FRAMES[key]
+    corr = c.correct(m, thumbs, out_lut, s)
+    return np.clip(p.apply_lut(p.apply_nodes(dwg, corr.chain()), out_lut), 0, 1)
+
+
 def before_after(entry: dict, frame: int, cache_folder: Path, width: int = 480) -> np.ndarray:
     """Display-referred RGB 0–1: the frame as it comes out of the colour group, a gap, and with DAVIGEN_AUTO."""
     in_lut, out_lut = (Path(x) if x else None for x in entry.get("luts", ["", ""]))

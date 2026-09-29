@@ -282,7 +282,8 @@ def wb_target(cct: float, duv: float, settings: dict) -> tuple[float, float, boo
     wb = settings["white_balance"]
     neutral_duv = p.cct_duv(p.dwg_to_xy(np.ones(3)))[1]
     new_cct = cct + _strength(cct, wb["cct_strength"]) * (wb["neutral_cct"] - cct)
-    new_cct = min(max(new_cct + settings.get("learned", {}).get("kelvin", 0.0), 1800.0), 20000.0)
+    new_cct += settings.get("learned", {}).get("kelvin", 0.0) + wb.get("look_kelvin", 0.0)
+    new_cct = min(max(new_cct, 1800.0), 20000.0)
     duv_error = duv - neutral_duv
     limited = abs(duv_error) > wb["max_duv"]
     new_duv = duv - math.copysign(min(abs(duv_error), wb["max_duv"]), duv_error)

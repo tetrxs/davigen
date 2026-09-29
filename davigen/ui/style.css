@@ -260,3 +260,14 @@ svg.plot .out { fill: none; stroke: #3b82f6; stroke-width: 2; }
 svg.plot .grey { stroke: var(--line); stroke-dasharray: 3 3; }
 svg.plot .kf { stroke: #f59e0b; stroke-width: 1; opacity: 0.7; }
 svg.plot .lbl { font-size: 9px; fill: var(--muted); }
+.look-samples { margin: 6px 0 14px; align-items: center; }
+.look-before { max-width: 360px; margin-bottom: 8px; }
+.look-before img { width: 100%; border-radius: 4px; display: block; background: #111; min-height: 60px; }
+.look-dim { margin: 14px 0 6px; }
+.look-dim h3 { margin: 0 0 8px; font-size: 13px; }
+.look-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.look-opt { text-align: left; background: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px;
+  cursor: pointer; color: inherit; font: inherit; }
+.look-opt img { width: 100%; border-radius: 4px; display: block; background: #111; min-height: 60px; margin-bottom: 6px; }
+.look-opt small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 3px; line-height: 1.35; }
+.look-opt.on { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }

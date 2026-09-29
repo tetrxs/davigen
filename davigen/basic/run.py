@@ -73,7 +73,7 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
     if proj is None:
         raise ResolveError("No project is open")
     base = base or project_base(proj)
-    s = settings_mod.load(cfg.workflow)
+    s = settings_mod.load(cfg.workflow, look=write.load_look(base))
     timeline = find_timeline(proj, timeline_name) if timeline_name else proj.GetCurrentTimeline()
     if timeline is None:
         raise ResolveError(f"Timeline {timeline_name or '(current)'} not found")
@@ -341,6 +341,7 @@ def _record(proj, timeline, items: list[Item], s: dict, dry_run: bool, recompute
     return {"project": proj.GetName(), "timeline": timeline.GetName(),
             "fps": _number(timeline.GetSetting("timelineFrameRate")),
             "date": datetime.now().isoformat(timespec="seconds"), "dry_run": dry_run, "recompute": recompute,
+            "look": s.get("look_applied", {}),
             "settings": s, "items": entries}
 
 

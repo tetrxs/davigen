@@ -22,6 +22,7 @@ instead of guessing.
 - [12. Answers from the API spike](#12-answers-from-the-api-spike)
 - [13. Next: learning](#13-next-learning)
 - [14. Changes within a clip: keyframes](#14-changes-within-a-clip-keyframes)
+- [15. The look: a project's setup](#15-the-look-a-projects-setup)
 
 ---
 
@@ -570,3 +571,21 @@ change of 1.0 stop, 33 of 57 clips got keyframes, mostly hand-held walks and car
 (−0.4 to +0.8 stops). That rides composition more than a colorist would, so the defaults are now 0.75 and 1.5
 stops: 23 clips. The first real run will tell. The record keeps every measured frame (`samples_over_time`) and
 the keyframes, so each decision can be traced.
+
+## 15. The look: a project's setup
+
+The targets are a starting point, not a taste. **Look…** in Basic correction shows four choices, each with a
+picture of a clip of the current timeline corrected that way (from its analysis, `preview.look_preview`), and
+saves them with the project (`00_ADMIN/PROJECT_INFO/basic_correction/look.json`). The numbers are in
+`[basic_correction.looks]`; the defaults for a new project in `[basic_correction.look]`.
+
+| Dimension | Options | What changes |
+|---|---|---|
+| Brightness | **Even** (default), Natural | Even: the highlight target (§5.1) only a little (weight 0.2, ±0.4 stop) and every shot pulled half way to the whole timeline's picture brightness and colourfulness – what an editor wants to cut. Night, dusk, silhouettes and snow keep theirs. Natural: the FiveK experts' placement (weight 0.64, ±1 stop): more mood, less even. |
+| Contrast | Soft, **Medium** (default), Strong | the black and spread targets of §5.3 and the white target move together |
+| Colour temperature | Cool, **Neutral** (default), Slightly warm, Warm | the white every light is balanced to, by +600 / 0 / −300 / −700 K |
+| Saturation | Muted, **Natural** (default), Rich | the chroma target × 0.85 / 1 / 1.15 |
+
+The texts next to the pictures say what each is typically used for. On MARSEILLE_2026 the user chose Even and
+Medium; the drone shot over the sea that looked heavy was not too contrasty but a stop too dark – sun glints on
+the water put the Natural highlight target a stop under grey.

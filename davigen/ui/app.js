@@ -188,6 +188,7 @@ function renderCurrent(c) {
         <label class="check"><input type="checkbox" id="b-dry"> Dry run</label>
         <label class="check" title="Overwrite existing DAVIGEN_AUTO versions (changes made inside them are lost)"><input type="checkbox" id="b-re"> Recompute all</label>
         <button class="primary" id="m-basic">Basic correction</button>
+        <button class="secondary" id="m-look" title="Brightness, contrast, warmth and saturation for this project, with example pictures">Look…</button>
         <button class="link" id="m-basic-report">Last report</button>
         <button class="link" id="m-basic-eval" title="Render your own version and DAVIGEN_AUTO at the same frames and measure how far apart they are">Compare with my grade</button>
       </div>
@@ -223,6 +224,7 @@ $("#current").addEventListener("click", async (e) => {
   if (flow) return runFlow(...MAINTENANCE[flow.dataset.flow]);
   if (e.target.closest("#m-basic")) return startBasic({ dry_run: $("#b-dry").checked, recompute: $("#b-re").checked });
   if (e.target.closest("#m-basic-report")) return showBasicReport();
+  if (e.target.closest("#m-look")) return showLook();
   if (e.target.closest("#m-selects")) return runFlow("/api/edit", "Edit assist · selects", { transcribe: $("#e-transcribe").checked });
   if (e.target.closest("#m-roughcut")) return runFlow("/api/edit", "Edit assist · rough cut", { pick_music: true, transcribe: $("#e-transcribe").checked });
   if (e.target.closest("#m-basic-eval")) { evalRun = true; return runFlow("/api/basic/evaluate", "Basic correction vs your grade", {}); }
@@ -943,6 +945,45 @@ document.addEventListener("click", async (e) => {
     + `${l.kelvin >= 0 ? "+" : ""}${Math.round(l.kelvin)} K, black ${l.black >= 0 ? "+" : ""}${num(l.black, 3)}, saturation ×${num(l.chroma)}. `
     + "Used from the next Basic correction on.";
 });
+// ------------------------------------------------------------ look
+const LOOK_TITLES = { brightness: "Brightness", contrast: "Contrast", warmth: "Colour temperature", saturation: "Saturation" };
+const lookState = { data: null, sample: "", stamp: 0 };
+const lookUrl = (dim, option) =>
+  `/basic/look.png?id=${encodeURIComponent(lookState.sample)}&dim=${dim}&option=${option}&t=${encodeURIComponent(TOKEN)}&v=${lookState.stamp}`;
+async function showLook() {
+  lookState.data = await api("/api/basic/look");
+  lookState.sample = (lookState.data.samples[0] || {}).id || "";
+  renderLook();
+  show("look");
+}
+function renderLook() {
+  const d = lookState.data;
+  if (!d.samples.length) {
+    $("#look").innerHTML = '<p class="muted">Run Basic correction once on this timeline – the example pictures come from its analysis.</p>';
+    return;
+  }
+  const samples = d.samples.map((s) => `<button class="${s.id === lookState.sample ? "primary" : "secondary"}" data-sample="${esc(s.id)}">${esc(s.name)}</button>`).join("");
+  const rows = Object.entries(d.options).map(([dim, opts]) => `
+    <div class="look-dim"><h3>${LOOK_TITLES[dim] || dim}</h3><div class="look-opts">
+      ${opts.map((o) => `<button class="look-opt${d.look[dim] === o.name ? " on" : ""}" data-dim="${dim}" data-option="${o.name}">
+        <img alt="${esc(o.label)}" src="${lookUrl(dim, o.name)}"><b>${esc(o.label)}</b><small>${esc(o.about)}</small></button>`).join("")}
+    </div></div>`).join("");
+  $("#look").innerHTML = `<div class="row gap wrap look-samples"><span class="muted">Example clip:</span>${samples}</div>
+    <div class="look-before"><img alt="as shot" src="${lookUrl("", "before")}"><small class="muted">As shot, through the colour group only</small></div>${rows}`;
+}
+document.addEventListener("click", async (e) => {
+  if (e.target.closest("#look-back")) return show("home");
+  const sample = e.target.closest("[data-sample]");
+  if (sample) { lookState.sample = sample.dataset.sample; return renderLook(); }
+  const opt = e.target.closest(".look-opt");
+  if (!opt) return;
+  const r = await api("/api/basic/look", { look: { [opt.dataset.dim]: opt.dataset.option } });
+  if (!r.ok) return notify(r.error || "Couldn't save the look");
+  lookState.data.look = r.look;
+  lookState.stamp += 1;              // the other rows depend on this choice
+  renderLook();
+});
+
 async function showBasicReport() {
   const r = await api("/api/basic/report");
   $("#run-title").textContent = "Basic correction";

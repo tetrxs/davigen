@@ -241,6 +241,22 @@ def save_record(base: Path, timeline_name: str, record: dict) -> Path:
     return target
 
 
+def save_look(base: Path, look: dict) -> Path:
+    """The project's look (concept §15), next to its reports."""
+    folder = base / "00_ADMIN" / "PROJECT_INFO" / "basic_correction"
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / "look.json"
+    target.write_text(json.dumps(look, indent=1), encoding="utf-8")
+    return target
+
+
+def load_look(base: Path) -> dict:
+    try:
+        return json.loads((base / "00_ADMIN" / "PROJECT_INFO" / "basic_correction" / "look.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def load_record(base: Path, timeline_name: str) -> dict:
     target = base / "00_ADMIN" / "PROJECT_INFO" / "basic_correction" / f"{timeline_name}.json"
     try:

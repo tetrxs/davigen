@@ -29,7 +29,7 @@ UI_DIR = Path(__file__).resolve().parent / "ui"
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
 RESOLVE_ROUTES = {"/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
                   "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn",
-                  "/api/basic/clip"}
+                  "/api/basic/clip", "/api/basic/look"}
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
 
 
@@ -225,6 +225,43 @@ class App:
         frame = int((q.get("frame") or [frames[len(frames) // 2]])[0])
         return preview.png(preview.before_after(entry, frame, base / "03_WORK" / "ANALYSIS"))
 
+    def basic_look(self, q: dict) -> dict:
+        """The project's look, the options with what each does, and sample clips of the last report to show them."""
+        from .basic import settings as basic_settings, write  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        base = creator.project_base(proj)
+        s = basic_settings.load(self.cfg.workflow, look=write.load_look(base))
+        options = {dim: [{"name": k, "label": v["label"], "about": v["about"]} for k, v in s["looks"][dim].items()]
+                   for dim in basic_settings.LOOK_DIMENSIONS}
+        timeline = proj.GetCurrentTimeline()
+        record = write.load_record(base, timeline.GetName()) if timeline else {}
+        return {"look": s["look_applied"], "options": options, "samples": _look_samples(record)}
+
+    def basic_look_save(self, body: dict) -> dict:
+        from .basic import settings as basic_settings, write  # noqa: PLC0415
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        base = creator.project_base(proj)
+        look = {k: v for k, v in (body.get("look") or {}).items() if k in basic_settings.LOOK_DIMENSIONS}
+        write.save_look(base, {**write.load_look(base), **look})
+        return {"ok": True, "look": basic_settings.load(self.cfg.workflow, look=write.load_look(base))["look_applied"]}
+
+    def basic_look_preview(self, q: dict) -> bytes:
+        """PNG: a sample clip with one option of one look dimension (the others as the project has them)."""
+        from .basic import preview, settings as basic_settings, write  # noqa: PLC0415
+        with self.resolve_lock:
+            entry, base = self._basic_entry((q.get("id") or [""])[0])
+            look = write.load_look(base) if base else {}
+        if not entry:
+            raise FileNotFoundError("unknown clip")
+        dim, option = (q.get("dim") or [""])[0], (q.get("option") or [""])[0]
+        if option == "before":
+            img = preview.look_preview(entry, base / "03_WORK" / "ANALYSIS", self.cfg.workflow, None)
+        else:
+            if dim in basic_settings.LOOK_DIMENSIONS:
+                look = {**look, dim: option}
+            img = preview.look_preview(entry, base / "03_WORK" / "ANALYSIS", self.cfg.workflow, look)
+        return preview.png(img)
+
     def basic_learn(self, body: dict) -> dict:
         """Take the last 'Compare with my grade' of the current timeline over into the learned offsets."""
         from .basic import run as basic  # noqa: PLC0415
@@ -417,6 +454,7 @@ def make_handler(app: App):
         "/api/catalog/status": lambda q: app.catalog_info(),
         "/api/basic/report": app.basic_report,
         "/api/basic/clip": app.basic_clip,
+        "/api/basic/look": app.basic_look,
     }
     routes_post = {
         "/api/validate": app.validate,
@@ -433,6 +471,7 @@ def make_handler(app: App):
         "/api/basic/evaluate": app.start_evaluate,
         "/api/edit": app.start_edit,
         "/api/basic/learn": app.basic_learn,
+        "/api/basic/look": app.basic_look_save,
         "/api/open-project": app.open_project,
         "/api/reveal": app.reveal,
         "/api/vendor-lut": app.vendor_lut,
@@ -480,6 +519,14 @@ def make_handler(app: App):
                 try:
                     with app.resolve_lock:
                         return self._send(200, app.basic_preview(query), "image/png")
+                except Exception as e:  # noqa: BLE001
+                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
+            if url.path == "/basic/look.png":
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                try:
+                    return self._send(200, app.basic_look_preview(query), "image/png")
                 except Exception as e:  # noqa: BLE001
                     return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
             if url.path.startswith("/catalog/thumbs/"):
@@ -545,3 +592,22 @@ def serve(resolve, cfg: Config | None = None, open_browser: bool = True, start: 
                 break
     finally:
         httpd.shutdown()
+
+
+def _look_samples(record: dict, count: int = 4) -> list[dict]:
+    """Clips that show a look well: the longest confident shot of the biggest scenes, one per camera group first."""
+    items = [e for e in record.get("items", []) if e.get("correction") and e.get("frames")]
+    items.sort(key=lambda e: (-(e.get("source_frames") or 0) / max(e.get("clip_fps") or 25.0, 1.0)))
+    out, groups, scenes = [], set(), set()
+    for rule in ("group", "scene", "any"):
+        for e in items:
+            if len(out) >= count or e in out:
+                continue
+            if rule == "group" and e.get("group") in groups:
+                continue
+            if rule == "scene" and e.get("scene") in scenes:
+                continue
+            out.append(e)
+            groups.add(e.get("group"))
+            scenes.add(e.get("scene"))
+    return [{"id": e["id"], "name": e["name"], "group": e.get("group", "")} for e in out]

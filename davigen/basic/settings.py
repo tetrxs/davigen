@@ -64,9 +64,44 @@ DEFAULTS: dict = {
         "refine_step_stops": 0.4, "refine_step_mired": 20, "refine_frames": 6, "refine_passes": 2,
         "tolerance_stops": 0.05, "max_keyframes": 16,
     },
-    "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3, "pull_fixed_wb": 0.7, "pull_chroma": 0.5},
+    "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3, "pull_fixed_wb": 0.7, "pull_chroma": 0.5, "pull_to_project": 0.5},
     "learning": {"rate": 0.5, "max_exposure": 1.0, "max_kelvin": 1500, "max_black": 0.03, "chroma": [0.7, 1.4]},
+    "look": {"brightness": "even", "contrast": "medium", "warmth": "neutral", "saturation": "natural"},
+    "looks": {
+        "brightness": {
+            "even": {"label": "Even", "headroom_weight": 0.2, "headroom_max": 0.4, "pull_to_project": 0.5,
+                     "about": "Every shot at the same picture brightness, whatever the camera did: what an editor "
+                              "wants to cut. Night, dusk, silhouettes and snow keep their character."},
+            "natural": {"label": "Natural", "headroom_weight": 0.64, "headroom_max": 1.0, "pull_to_project": 0.2,
+                        "about": "As photo retouchers do it (MIT-Adobe FiveK): a bright, flat scene stays brighter, "
+                                 "a backlit one darker. More mood, less even."},
+        },
+        "contrast": {
+            "soft": {"label": "Soft", "black_shift": 0.02, "spread_shift": -0.06, "white_shift": -0.02,
+                     "about": "Open shadows and gentle tones: documentary, interviews, a light holiday look."},
+            "medium": {"label": "Medium", "black_shift": 0.0, "spread_shift": 0.0, "white_shift": 0.0,
+                       "about": "Clean blacks, whites under 90 %: where a colorist usually starts for travel "
+                                "and documentary."},
+            "strong": {"label": "Strong", "black_shift": -0.01, "spread_shift": 0.05, "white_shift": 0.03,
+                       "about": "Deep blacks and punchy mids: action, sport, a cinematic look."},
+        },
+        "warmth": {
+            "cool": {"label": "Cool", "kelvin": 600, "about": "Crisp and modern: winter, cities, blue hour."},
+            "neutral": {"label": "Neutral", "kelvin": 0, "about": "White is white. The safe start, and what "
+                                                                  "matching several cameras needs."},
+            "slightly_warm": {"label": "Slightly warm", "kelvin": -300,
+                              "about": "The classic travel and summer feel; skin looks healthy."},
+            "warm": {"label": "Warm", "kelvin": -700, "about": "Golden hour, nostalgic, Mediterranean."},
+        },
+        "saturation": {
+            "muted": {"label": "Muted", "chroma_scale": 0.85, "about": "Calm and filmic."},
+            "natural": {"label": "Natural", "chroma_scale": 1.0, "about": "Colours as they were."},
+            "rich": {"label": "Rich", "chroma_scale": 1.15, "about": "Vivid: the social-media travel look."},
+        },
+    },
 }
+
+LOOK_DIMENSIONS = ("brightness", "contrast", "warmth", "saturation")
 
 # what davigen learned from the user's grades (concept §13): offsets to the targets, not thresholds
 NEUTRAL_LEARNED = {"exposure": 0.0, "kelvin": 0.0, "black": 0.0, "chroma": 1.0, "clips": 0, "updated": ""}
@@ -79,12 +114,35 @@ def _merge(base: dict, override: dict) -> dict:
     return out
 
 
-def load(workflow: dict | None, learned: bool = True) -> dict:
+def load(workflow: dict | None, learned: bool = True, look: dict | None = None) -> dict:
     """Basic Correction settings from a loaded workflow.toml (Config.workflow), defaults filled in, plus what was
-    learned from the user's grades (neutral when learned=False or nothing was learned yet)."""
+    learned from the user's grades (neutral when learned=False or nothing was learned yet), with a project's look
+    (look: {dimension: option}, missing ones from [basic_correction.look]) applied."""
     out = _merge(DEFAULTS, (workflow or {}).get("basic_correction", {}))
     out["learned"] = load_learned() if learned else dict(NEUTRAL_LEARNED)
-    return out
+    return apply_look(out, {**out["look"], **(look or {})})
+
+
+def apply_look(s: dict, look: dict) -> dict:
+    """The look's options as changes to the targets. Unknown options fall back to the default."""
+    chosen = {}
+    for dim in LOOK_DIMENSIONS:
+        options = s["looks"][dim]
+        name = look.get(dim) if look.get(dim) in options else s["look"][dim]
+        chosen[dim] = name
+    b = s["looks"]["brightness"][chosen["brightness"]]
+    s["exposure"]["headroom_weight"], s["exposure"]["headroom_max"] = b["headroom_weight"], b["headroom_max"]
+    s["scenes"]["pull_to_project"] = b["pull_to_project"]
+    k = s["looks"]["contrast"][chosen["contrast"]]
+    co = s["contrast"]
+    co["black_by_range"] = [[r, max(0.0, v + k["black_shift"])] for r, v in co["black_by_range"]]
+    co["spread_by_range"] = [[r, v + k["spread_shift"]] for r, v in co["spread_by_range"]]
+    co["white_target"] = min(co["white_ceiling"], co["white_target"] + k["white_shift"])
+    s["white_balance"]["look_kelvin"] = s["looks"]["warmth"][chosen["warmth"]]["kelvin"]
+    scale = s["looks"]["saturation"][chosen["saturation"]]["chroma_scale"]
+    s["saturation"]["chroma"] = [v * scale for v in s["saturation"]["chroma"]]
+    s["look_applied"] = chosen
+    return s
 
 
 def load_learned() -> dict:

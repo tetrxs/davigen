@@ -53,3 +53,29 @@ def test_clip_detail_and_preview(tmp_path, monkeypatch):
     png = app.basic_preview({"id": [item.uid], "frame": ["200"]})    # no ffmpeg for a fake file: the cache
     assert png.startswith(b"\x89PNG")
     assert app.basic_clip({"id": ["nope"]})["ok"] is False
+
+
+def test_look_setup(tmp_path, monkeypatch):
+    from davigen import colormath
+    if not colormath.available():
+        pytest.skip("colour-science not installed")
+    import test_basic_run as tr
+    from davigen.basic import run
+    d = tmp_path / "luts"
+    d.mkdir()
+    luts = (str(colormath.input_lut("V-Log", "V-Gamut", d / "in.cube", size=17)),
+            str(colormath.output_lut(d / "out.cube", size=33)))
+    resolve, proj, item = tr.tunnel(luts)
+    run.basic_correction(resolve, Config(), creator.Reporter(run.STEPS), base=tmp_path)
+    monkeypatch.setattr(creator, "project_base", lambda p: tmp_path)
+    app = server.App(resolve=resolve, cfg=Config())
+    look = app.basic_look({})
+    assert look["look"]["contrast"] == "medium" and {o["name"] for o in look["options"]["warmth"]} >= {"neutral", "warm"}
+    assert look["samples"] and look["samples"][0]["id"] == item.uid
+    saved = app.basic_look_save({"look": {"warmth": "warm", "nonsense": "x"}})
+    assert saved["look"]["warmth"] == "warm" and app.basic_look({})["look"]["warmth"] == "warm"
+    for option in ("before", "strong"):
+        png = app.basic_look_preview({"id": [item.uid], "dim": ["contrast"], "option": [option]})
+        assert png.startswith(b"\x89PNG")
+    record = run.basic_correction(resolve, Config(), creator.Reporter(run.STEPS), base=tmp_path, recompute=True)
+    assert record["look"]["warmth"] == "warm"
