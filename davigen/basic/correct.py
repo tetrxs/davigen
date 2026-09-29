@@ -111,7 +111,7 @@ class _Sim:
                 lum = np.maximum(p.dwg_luminance(p.to_linear(di)), 1e-6)
                 v = p.to_log(lum)
                 v = v[keep] if keep.sum() > 16 else v.ravel()
-                values.append(v[:: max(1, len(v) // 3000)])       # every n-th pixel: percentiles barely move
+                values.append(v[:: max(1, len(v) // 1500)])       # every n-th pixel: percentiles barely move
             self._tone = (repr(nodes), values, grid, curve)
         return self._tone[1:]
 
@@ -314,6 +314,14 @@ def white_balance_cdl(m: ms.Measurement, exposure: p.Cdl, cct: float, duv: float
 
 # -------------------------------------------------------------------------------------------- 03 contrast
 
+def _curve(v: np.ndarray, grid: np.ndarray, curve: np.ndarray) -> np.ndarray:
+    """np.interp for the Sim.tone grid, which is uniform: direct indexing, several times faster."""
+    pos = np.clip((v - grid[0]) / (grid[1] - grid[0]), 0.0, len(grid) - 1.000001)
+    i = pos.astype(np.int64)
+    f = pos - i
+    return curve[i] * (1.0 - f) + curve[i + 1] * f
+
+
 def tone_stats(y: np.ndarray) -> dict:
     """What the contrast is judged by, on display luma 0–1: the black and white points, and the spread of the
     tones in between (5th to 95th percentile)."""
@@ -358,7 +366,7 @@ def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values
     lo_c, hi_c = co["range"]
     lo_p, hi_p = co["power_range"]
     ls, grid, curve = sim.tone(before)
-    y0 = np.concatenate([np.interp(v, grid, curve) for v in ls])
+    y0 = np.concatenate([_curve(v, grid, curve) for v in ls])
     start = tone_stats(y0)
     t = contrast_targets(start, m, settings)
     white_cap = max(start["white"], co["white_ceiling"])
@@ -368,7 +376,7 @@ def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values
     def stats(k, g, pw):
         node = contrast_node(k, g, pw)
         o = node.offset[0]
-        ys = [np.interp(np.sign(k * v + o) * np.abs(k * v + o) ** pw, grid, curve) for v in ls]
+        ys = [_curve(np.sign(k * v + o) * np.abs(k * v + o) ** pw, grid, curve) for v in ls]
         each = [tone_stats(y) for y in ys if len(y)]
         return {key: float(np.median([e[key] for e in each])) for key in each[0]} if each else start
 
@@ -390,18 +398,18 @@ def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values
         err += 1.0 * (k - 1.0) ** 2 + 0.3 * (pw - 1.0) ** 2 + 0.2 * g ** 2     # the least change that does it
         return err, st
 
-    ks = np.arange(lo_c, hi_c + 1e-9, 0.04)
-    pws = np.arange(lo_p, hi_p + 1e-9, 0.1)
+    ks = np.arange(lo_c, hi_c + 1e-9, 0.08)             # coarse, then refined around the best
+    pws = np.arange(lo_p, hi_p + 1e-9, 0.2)
     # around grey first: the exposure node decided the mids. Only when the whites hold the curve back and the
     # black stays above its band may the mids come down, at most max_grey_shift
     _, k, g, pw = min(((cost(k, 0.0, q)[0], k, 0.0, q) for k in ks for q in pws), key=lambda x: x[0])
     st = cost(k, 0.0, pw)[1]
     shift_allowed = co["max_grey_shift"] > 0 and st["white"] >= white_soft - 0.005 and st["black"] > t["black_hi"]
     if shift_allowed:
-        gs = np.arange(-co["max_grey_shift"], 1e-9, 0.1)
+        gs = np.arange(-co["max_grey_shift"], 1e-9, 0.125)
         _, k, g, pw = min(((cost(kk, gg, q)[0], kk, gg, q) for kk in ks for gg in gs for q in pws), key=lambda x: x[0])
     lim_g = -co["max_grey_shift"] - 1e-9 if shift_allowed else -1e-9
-    for sk, sg, sp in ((0.02, 0.05, 0.05), (0.01, 0.025, 0.025), (0.005, 0.01, 0.01)):     # refine around the best
+    for sk, sg, sp in ((0.04, 0.06, 0.1), (0.02, 0.03, 0.05), (0.01, 0.015, 0.025), (0.005, 0.01, 0.01)):
         cand = [(cost(kk, gg, qq)[0], kk, gg, qq) for kk in (k - sk, k, k + sk) for gg in (g - sg, g, g + sg)
                 for qq in (pw - sp, pw, pw + sp)
                 if lo_c <= kk <= hi_c and lim_g <= gg <= 1e-9 and lo_p - 1e-9 <= qq <= hi_p + 1e-9]
