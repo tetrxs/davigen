@@ -105,7 +105,10 @@ def tunnel(luts):
 
 def test_tunnel_exit_is_keyframed(luts, tmp_path):
     resolve, proj, item = tunnel(luts)
-    record = run.basic_correction(resolve, Config(), Reporter(run.STEPS), base=tmp_path)
+    rep = Reporter(run.STEPS)
+    record = run.basic_correction(resolve, Config(), rep, base=tmp_path)
+    # the live view got the clip with a picture and where its keyframes sit
+    assert rep.live and rep.live[-1]["keyframes"] and rep.images.get(rep.live[-1]["n"], b"").startswith(b"\x89PNG")
     e = record["items"][0]
     kf = e["keyframes"]
     assert kf and kf["frames"][0] < 250 < kf["frames"][-1]

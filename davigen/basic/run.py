@@ -177,6 +177,7 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
             it.outcome.marker = write.mark(it.ti, [], None, threshold, reason) if it.mpi else ""
             continue
         corr = it.shot.correction
+        _show(rep, it, n, len(items), base)
         it.outcome = write.write_item(proj, it.ti, corr, recompute=recompute, dry_run=dry_run,
                                       previous_user_version=old_versions.get(it.id, ""),
                                       keyframes=it.keyframes, drx_folder=base / "03_WORK" / "ANALYSIS" / "drx",
@@ -202,6 +203,32 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
 
 
 # -------------------------------------------------------------------------------------------- helpers
+
+def _show(rep, it: "Item", n: int, total: int, base: Path) -> None:
+    """The clip being written, for the live view: before | after at its most telling frame (the biggest keyframed
+    move, else the middle sample), and where its keyframes sit. Never stops the run."""
+    if not hasattr(rep, "show"):
+        return
+    from . import preview  # noqa: PLC0415
+    kf = it.keyframes
+    frames = it.frames or [it.start]
+    frame = frames[len(frames) // 2]
+    info = {"clip": it.name, "index": n, "total": total, "keyframes": [], "reason": ""}
+    if kf:
+        frame = kf.frames[int(np.argmax(np.abs(kf.stops)))] if kf.stops else kf.frames[len(kf.frames) // 2]
+        span = max(it.duration, 1)
+        info.update(keyframes=[round(min(max((f - it.start) / span, 0.0), 1.0), 4) for f in kf.frames],
+                    reason=kf.reason, stops=[round(x, 2) for x in kf.stops])
+    info["at"] = round(min(max((frame - it.start) / max(it.duration, 1), 0.0), 1.0), 4)
+    png = None
+    try:
+        entry = {"path": it.path, "luts": [str(x) for x in it.luts], "clip_fps": it.fps,
+                 "correction": it.shot.correction.to_dict(), "keyframes": kf.to_dict() if kf else None}
+        png = preview.png(preview.before_after(entry, frame, base / "03_WORK" / "ANALYSIS", width=320))
+    except Exception:  # noqa: BLE001 - the picture is a nicety
+        png = None
+    rep.show(info, png)
+
 
 class _Fetcher:
     """Frames of items from the analysis cache, rendering the missing ones in one scratch-timeline render."""

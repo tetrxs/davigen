@@ -260,14 +260,45 @@ svg.plot .out { fill: none; stroke: #3b82f6; stroke-width: 2; }
 svg.plot .grey { stroke: var(--line); stroke-dasharray: 3 3; }
 svg.plot .kf { stroke: #f59e0b; stroke-width: 1; opacity: 0.7; }
 svg.plot .lbl { font-size: 9px; fill: var(--muted); }
-.look-samples { margin: 6px 0 14px; align-items: center; }
-.look-before { max-width: 360px; margin-bottom: 8px; }
-.look-before img { width: 100%; border-radius: 4px; display: block; background: #111; min-height: 60px; }
-.look-dim { margin: 14px 0 6px; }
-.look-dim h3 { margin: 0 0 8px; font-size: 13px; }
-.look-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
-.look-opt { text-align: left; background: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px;
-  cursor: pointer; color: inherit; font: inherit; }
-.look-opt img { width: 100%; border-radius: 4px; display: block; background: #111; min-height: 60px; margin-bottom: 6px; }
-.look-opt small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 3px; line-height: 1.35; }
-.look-opt.on { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
+/* basic correction setup */
+.wiz-steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 4px 0 18px; flex-wrap: wrap; }
+.wiz-steps li { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.wiz-steps li.on { border-color: #3b82f6; color: inherit; }
+.wiz-steps li.done { color: inherit; }
+#wiz-body h2 { font-size: 16px; margin: 0 0 4px; }
+.wiz-samples { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 10px 0; font-size: 12px; }
+.chip { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
+  background: none; color: inherit; cursor: pointer; }
+.chip.on { border-color: #3b82f6; }
+.compare { position: relative; width: 100%; aspect-ratio: 3 / 2; background: #111; border-radius: 6px; overflow: hidden;
+  user-select: none; }
+.compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.compare .cmp-b { clip-path: inset(0 0 0 var(--pos)); }
+.compare .cmp-line { position: absolute; top: 0; bottom: 0; left: var(--pos); width: 2px; background: #fff;
+  box-shadow: 0 0 6px rgba(0, 0, 0, .6); pointer-events: none; }
+.compare .cmp-tag { position: absolute; top: 8px; font-size: 11.5px; padding: 3px 8px; border-radius: 4px;
+  background: rgba(0, 0, 0, .55); color: #fff; pointer-events: none; }
+.compare .cmp-tag.a { left: 8px; }
+.compare .cmp-tag.b { right: 8px; }
+.compare .cmp-slider { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: ew-resize; margin: 0; }
+.wiz-opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+.wiz-opt { display: flex; flex-direction: column; text-align: left; background: none; border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px; cursor: pointer; color: inherit; font: inherit; height: 100%; }
+.wiz-opt img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 4px; background: #111; margin-bottom: 6px; }
+.wiz-opt small { color: var(--muted); font-size: 11.5px; margin-top: 3px; line-height: 1.35; min-height: 2.7em; }
+.wiz-opt.on { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
+.wiz-summary { list-style: none; padding: 0; margin: 12px 0 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.wiz-summary li { border: 1px solid var(--line); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+/* live view while Basic correction writes */
+#live { margin-top: 16px; }
+.live-now img { width: 100%; max-width: 720px; display: block; border-radius: 6px; background: #111; }
+.live-cap { margin: 6px 0 4px; font-size: 12.5px; }
+.kf-bar { position: relative; height: 12px; max-width: 720px; border-radius: 3px; background: var(--line); margin: 4px 0; }
+.kf-bar.none { opacity: .5; }
+.kf-bar i { position: absolute; top: 1px; bottom: 1px; width: 2px; margin-left: -1px; background: #f59e0b; }
+.kf-bar b { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: #fff; border-radius: 1px; }
+.live-strip { display: flex; gap: 6px; overflow-x: auto; margin-top: 10px; }
+.live-strip figure { margin: 0; flex: 0 0 150px; }
+.live-strip img { width: 150px; border-radius: 4px; display: block; background: #111; }
+.live-strip figcaption { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.small { font-size: 11.5px; }

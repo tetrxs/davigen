@@ -209,3 +209,13 @@ def test_headroom_moves_the_target(out_lut):
     after_back = m_back.exposure_stops + c_back.values["exposure_stops"]
     assert c_flat.values["exposure_headroom"] < c_back.values["exposure_headroom"]
     assert after_flat > 0.3 and after_back < after_flat
+
+
+def test_warmth_without_a_known_light(out_lut):
+    """A clip whose light nobody knows still gets the look's warmth: a grey turns warm, not balanced."""
+    meas, corr = run([grey_scene()], out_lut)
+    exp = corr.nodes[c.EXPOSURE]
+    assert c.warmth_cdl(meas, exp, 0.0).is_identity
+    warm = c.warmth_cdl(meas, exp, -700.0).offset
+    cool = c.warmth_cdl(meas, exp, 800.0).offset
+    assert warm[0] > warm[2] and cool[2] > cool[0]

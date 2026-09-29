@@ -239,7 +239,8 @@ class App:
                    for dim in basic_settings.LOOK_DIMENSIONS}
         timeline = proj.GetCurrentTimeline()
         record = write.load_record(base, timeline.GetName()) if timeline else {}
-        return {"look": s["look_applied"], "options": options, "samples": _look_samples(record)}
+        return {"look": s["look_applied"], "defaults": s["look"], "options": options,
+                "samples": _look_samples(record)}
 
     def basic_look_save(self, body: dict) -> dict:
         from .basic import settings as basic_settings, write  # noqa: PLC0415
@@ -257,13 +258,16 @@ class App:
             look = write.load_look(base) if base else {}
         if not entry:
             raise FileNotFoundError("unknown clip")
+        # the setup passes its choices so far (nothing is saved before the run starts)
+        look = {**look, **{d: (q.get(d) or [""])[0] for d in basic_settings.LOOK_DIMENSIONS if q.get(d)}}
         dim, option = (q.get("dim") or [""])[0], (q.get("option") or [""])[0]
+        width = min(max(int((q.get("w") or ["360"])[0] or 360), 120), 960)
         if option == "before":
-            img = preview.look_preview(entry, base / "03_WORK" / "ANALYSIS", self.cfg.workflow, None)
+            img = preview.look_preview(entry, base / "03_WORK" / "ANALYSIS", self.cfg.workflow, None, width)
         else:
             if dim in basic_settings.LOOK_DIMENSIONS:
                 look = {**look, dim: option}
-            img = preview.look_preview(entry, base / "03_WORK" / "ANALYSIS", self.cfg.workflow, look)
+            img = preview.look_preview(entry, base / "03_WORK" / "ANALYSIS", self.cfg.workflow, look, width)
         return preview.png(img)
 
     def basic_learn(self, body: dict) -> dict:
@@ -526,6 +530,12 @@ def make_handler(app: App):
                         return self._send(200, app.basic_preview(query), "image/png")
                 except Exception as e:  # noqa: BLE001
                     return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
+            if url.path == "/basic/live.png":
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                png = app.reporter.images.get(int((query.get("n") or ["0"])[0] or 0)) if app.reporter else None
+                return self._send(200, png, "image/png") if png else self._send(404, b"gone", "text/plain")
             if url.path == "/basic/look.png":
                 query = parse_qs(url.query)
                 if (query.get("t") or [""])[0] != app.token:

@@ -329,11 +329,11 @@ saturation = "natural"
 
 [basic_correction.looks.brightness.darker]
 label = "Darker"
-exposure_offset = -0.33             # stops, on top of the even level
+exposure_offset = -0.5             # stops, on top of the even level
 headroom_weight = 0.2               # the highlight target (exposure.headroom_*) only a little …
 headroom_max = 0.4
 pull_to_project = 0.5               # … and every shot pulled half way to the whole timeline's brightness
-about = "A third of a stop under the even level: moodier, richer colours in bright scenes."
+about = "Half a stop down: moodier, richer colours."
 
 [basic_correction.looks.brightness.even]
 label = "Even"
@@ -341,55 +341,55 @@ exposure_offset = 0.0
 headroom_weight = 0.2
 headroom_max = 0.4
 pull_to_project = 0.5
-about = "Every shot at the same picture brightness, whatever the camera did: what an editor wants to cut. Night, dusk, silhouettes and snow keep their character."
+about = "Every shot at the same brightness – easy to cut."
 
 [basic_correction.looks.brightness.brighter]
 label = "Brighter"
-exposure_offset = 0.33
+exposure_offset = 0.5
 headroom_weight = 0.2
 headroom_max = 0.4
 pull_to_project = 0.5
-about = "A third of a stop over: light and airy, for summer, beach and lifestyle."
+about = "Half a stop up: light and airy."
 
 [basic_correction.looks.contrast.soft]
 label = "Soft"
-black_shift = 0.02                  # added to contrast.black_by_range …
-spread_shift = -0.06                # … to contrast.spread_by_range …
-white_shift = -0.02                 # … and to contrast.white_target
-about = "Open shadows and gentle tones: documentary, interviews, a light holiday look."
+black_shift = 0.03                  # added to contrast.black_by_range …
+spread_shift = -0.09                # … to contrast.spread_by_range …
+white_shift = -0.03                 # … and to contrast.white_target
+about = "Open shadows, gentle tones: documentary, interviews."
 
 [basic_correction.looks.contrast.medium]
 label = "Medium"
 black_shift = 0.0
 spread_shift = 0.0
 white_shift = 0.0
-about = "Clean blacks, whites under 90 %: where a colorist usually starts for travel and documentary."
+about = "Clean blacks, calm whites: the usual start."
 
 [basic_correction.looks.contrast.strong]
 label = "Strong"
-black_shift = -0.01
-spread_shift = 0.05
-white_shift = 0.03
-about = "Deep blacks and punchy mids: action, sport, a cinematic look."
+black_shift = -0.015
+spread_shift = 0.08
+white_shift = 0.04
+about = "Deep blacks, punchy mids: action, cinematic."
 
 [basic_correction.looks.warmth.cool]
 label = "Cool"
-kelvin = 500                        # added to the white every light is balanced to (lower: warmer picture)
-about = "Crisp and modern: winter, cities, blue hour."
+kelvin = 800                        # added to the white every light is balanced to (lower: warmer picture)
+about = "Crisp and modern: cities, winter, blue hour."
 
 [basic_correction.looks.warmth.neutral]
 label = "Neutral"
 kelvin = 0
-about = "White is white. The safe start, and what matching several cameras needs."
+about = "White is white – what matching cameras needs."
 
 [basic_correction.looks.warmth.warm]
 label = "Warm"
-kelvin = -450
-about = "The classic travel and summer feel: golden light, healthy skin."
+kelvin = -700
+about = "Golden, summery, healthy skin."
 
 [basic_correction.looks.saturation.muted]
 label = "Muted"
-chroma_scale = 0.85                 # multiplies saturation.chroma
+chroma_scale = 0.8                 # multiplies saturation.chroma
 about = "Calm and filmic."
 
 [basic_correction.looks.saturation.natural]
@@ -399,8 +399,8 @@ about = "Colours as they were."
 
 [basic_correction.looks.saturation.rich]
 label = "Rich"
-chroma_scale = 1.15
-about = "Vivid: the social-media travel look."
+chroma_scale = 1.22
+about = "Vivid, the travel-video look."
 
 # Learning from your grades (concept §13): 'Compare with my grade' → 'Learn from it' moves the targets towards your
 # own versions. What was learned is stored per user in data/basic_learned.json; delete that file to forget it.

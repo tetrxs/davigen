@@ -185,10 +185,7 @@ function renderCurrent(c) {
         contrast, saturation) in a new grade version <span class="mono">DAVIGEN_AUTO</span>. Your own grade stays
         as it is – switch versions on the Color page for a before/after. Unsure clips get a marker.</small></div>
       <div class="row gap wrap">
-        <label class="check"><input type="checkbox" id="b-dry"> Dry run</label>
-        <label class="check" title="Overwrite existing DAVIGEN_AUTO versions (changes made inside them are lost)"><input type="checkbox" id="b-re"> Recompute all</label>
-        <button class="primary" id="m-basic">Basic correction</button>
-        <button class="secondary" id="m-look" title="Brightness, contrast, warmth and saturation for this project, with example pictures">Look…</button>
+        <button class="primary" id="m-basic">Basic correction…</button>
         <button class="link" id="m-basic-report">Last report</button>
         <button class="link" id="m-basic-eval" title="Render your own version and DAVIGEN_AUTO at the same frames and measure how far apart they are">Compare with my grade</button>
         <button class="link" id="m-basic-reset" title="Delete DAVIGEN_AUTO and davigen's markers on every clip of the current timeline; each clip goes back to your own version">Remove DAVIGEN_AUTO</button>
@@ -223,9 +220,8 @@ const MAINTENANCE = {
 $("#current").addEventListener("click", async (e) => {
   const flow = e.target.closest("[data-flow]");
   if (flow) return runFlow(...MAINTENANCE[flow.dataset.flow]);
-  if (e.target.closest("#m-basic")) return startBasic({ dry_run: $("#b-dry").checked, recompute: $("#b-re").checked });
+  if (e.target.closest("#m-basic")) return showSetup();
   if (e.target.closest("#m-basic-report")) return showBasicReport();
-  if (e.target.closest("#m-look")) return showLook();
   if (e.target.closest("#m-basic-reset")) {
     if (!confirm("Remove DAVIGEN_AUTO from every clip of the current timeline? Each clip goes back to your own version, which stays as it is. davigen's markers are removed too.")) return;
     return runFlow("/api/basic/reset", "Removing DAVIGEN_AUTO", {});
@@ -773,6 +769,8 @@ async function runFlow(path, title, body = {}) {
   running = true;
   $("#run-title").textContent = title;
   $("#progress").innerHTML = "";
+  $("#live").hidden = true;
+  lastLive = 0;
   $("#error").hidden = true;
   $("#after").hidden = true;
   show("run");
@@ -786,11 +784,14 @@ async function runFlow(path, title, body = {}) {
     $("#after").hidden = false;
   }
 }
+let lastLive = 0;
 async function pollProgress() {
   let p;
   try { p = await api("/api/progress"); } catch { return setTimeout(pollProgress, 1000); }
   $("#progress").innerHTML = p.steps.map((s) => `
     <li class="${s.state}"><span class="icon"></span><div>${esc(s.label)}${s.detail ? `<small>${esc(s.detail)}</small>` : ""}</div></li>`).join("");
+  const last = (p.live || []).slice(-1)[0];
+  if (!last || last.n !== lastLive) { lastLive = last ? last.n : 0; renderLive(p.live); }
   if (!p.done) return setTimeout(pollProgress, 500);
   running = false;
   $("#run-title").textContent = p.error ? "Stopped" : "Done";
@@ -950,45 +951,127 @@ document.addEventListener("click", async (e) => {
     + `${l.kelvin >= 0 ? "+" : ""}${Math.round(l.kelvin)} K, black ${l.black >= 0 ? "+" : ""}${num(l.black, 3)}, saturation ×${num(l.chroma)}. `
     + "Used from the next Basic correction on.";
 });
-// ------------------------------------------------------------ look
-const LOOK_TITLES = { brightness: "Brightness", contrast: "Contrast", warmth: "Colour temperature", saturation: "Saturation" };
-const lookState = { data: null, sample: "", stamp: 0 };
-const lookUrl = (dim, option) =>
-  `/basic/look.png?id=${encodeURIComponent(lookState.sample)}&dim=${dim}&option=${option}&t=${encodeURIComponent(TOKEN)}&v=${lookState.stamp}`;
-async function showLook() {
-  lookState.data = await api("/api/basic/look");
-  lookState.sample = (lookState.data.samples[0] || {}).id || "";
-  renderLook();
-  show("look");
+// ------------------------------------------------------------ basic correction setup (a small wizard)
+const SETUP = [
+  ["brightness", "Brightness", "How bright the pictures sit. Night, dusk, silhouettes and snow keep their character."],
+  ["contrast", "Contrast", "How deep the blacks and how punchy the mid-tones."],
+  ["warmth", "Colour temperature", "The mood of the white balance: every camera is matched first, then shifted."],
+  ["saturation", "Saturation", "How colourful the result is."],
+];
+const wiz = { step: 0, data: null, look: {}, sample: "", options: { dry_run: false, recompute: true } };
+const previewSrc = (option, dim, w) => {
+  const q = new URLSearchParams({ id: wiz.sample, dim, option, w: String(w), t: TOKEN, ...wiz.look });
+  return `/basic/look.png?${q}`;
+};
+async function showSetup() {
+  wiz.data = await api("/api/basic/look");
+  wiz.look = { ...wiz.data.look };
+  wiz.sample = (wiz.data.samples[0] || {}).id || "";
+  wiz.step = 0;
+  renderSetup();
+  show("basic-setup");
 }
-function renderLook() {
-  const d = lookState.data;
+function renderSetup() {
+  const d = wiz.data;
+  const names = [...SETUP.map(([, t]) => t), "Start"];
+  $("#wiz-steps").innerHTML = names.map((t, i) => `<li class="${i === wiz.step ? "on" : i < wiz.step ? "done" : ""}">${i + 1}. ${esc(t)}</li>`).join("");
+  $("#wiz-back").textContent = wiz.step === 0 ? "Cancel" : "Back";
+  $("#wiz-next").textContent = wiz.step < SETUP.length ? "Next" : "Start Basic correction";
+  if (wiz.step === SETUP.length) return renderStart();
   if (!d.samples.length) {
-    $("#look").innerHTML = '<p class="muted">Run Basic correction once on this timeline – the example pictures come from its analysis.</p>';
+    $("#wiz-body").innerHTML = '<p class="muted">The example pictures come from an earlier analysis of this timeline. Skip the steps and start: the next run makes them.</p>';
     return;
   }
-  const samples = d.samples.map((s) => `<button class="${s.id === lookState.sample ? "primary" : "secondary"}" data-sample="${esc(s.id)}">${esc(s.name)}</button>`).join("");
-  const rows = Object.entries(d.options).map(([dim, opts]) => `
-    <div class="look-dim"><h3>${LOOK_TITLES[dim] || dim}</h3><div class="look-opts">
-      ${opts.map((o) => `<button class="look-opt${d.look[dim] === o.name ? " on" : ""}" data-dim="${dim}" data-option="${o.name}">
-        <img alt="${esc(o.label)}" src="${lookUrl(dim, o.name)}"><b>${esc(o.label)}</b><small>${esc(o.about)}</small></button>`).join("")}
-    </div></div>`).join("");
-  $("#look").innerHTML = `<div class="row gap wrap look-samples"><span class="muted">Example clip:</span>${samples}</div>
-    <div class="look-before"><img alt="as shot" src="${lookUrl("", "before")}"><small class="muted">As shot, through the colour group only</small></div>${rows}`;
+  const [dim, title, about] = SETUP[wiz.step];
+  const opts = d.options[dim];
+  const std = d.defaults[dim];
+  const sel = wiz.look[dim];
+  const label = (name) => (opts.find((o) => o.name === name) || {}).label || name;
+  const samples = d.samples.map((s) => `<button class="chip${s.id === wiz.sample ? " on" : ""}" data-wsample="${esc(s.id)}">${esc(s.name)}</button>`).join("");
+  $("#wiz-body").innerHTML = `
+    <h2>${wiz.step + 1} · ${esc(title)}</h2><p class="muted">${esc(about)}</p>
+    <div class="wiz-samples"><span class="muted">Example clip</span>${samples}</div>
+    <div class="compare" id="cmp" style="--pos:50%">
+      <img class="cmp-a" alt="${esc(label(std))}" src="${previewSrc(std, dim, 720)}">
+      <img class="cmp-b" alt="${esc(label(sel))}" src="${previewSrc(sel, dim, 720)}">
+      <div class="cmp-line"></div>
+      <span class="cmp-tag a">${esc(label(std))} · standard</span><span class="cmp-tag b">${esc(label(sel))}</span>
+      <input type="range" min="0" max="100" value="50" class="cmp-slider" aria-label="Compare">
+    </div>
+    <div class="wiz-opts">${opts.map((o) => `
+      <button class="wiz-opt${o.name === sel ? " on" : ""}" data-wopt="${o.name}">
+        <img alt="" src="${previewSrc(o.name, dim, 720)}"><b>${esc(o.label)}${o.name === std ? ' <span class="tag">standard</span>' : ""}</b>
+        <small>${esc(o.about)}</small></button>`).join("")}</div>`;
 }
-document.addEventListener("click", async (e) => {
-  if (e.target.closest("#look-back")) return show("home");
-  if (e.target.closest("#look-run")) return startBasic({ recompute: true, confirmed: true });
-  const sample = e.target.closest("[data-sample]");
-  if (sample) { lookState.sample = sample.dataset.sample; return renderLook(); }
-  const opt = e.target.closest(".look-opt");
-  if (!opt) return;
-  const r = await api("/api/basic/look", { look: { [opt.dataset.dim]: opt.dataset.option } });
-  if (!r.ok) return notify(r.error || "Couldn't save the look");
-  lookState.data.look = r.look;
-  lookState.stamp += 1;              // the other rows depend on this choice
-  renderLook();
+function renderStart() {
+  const d = wiz.data;
+  const chosen = SETUP.map(([dim, title]) => {
+    const o = d.options[dim].find((x) => x.name === wiz.look[dim]) || {};
+    return `<li><span class="muted">${esc(title)}</span><b>${esc(o.label || wiz.look[dim])}</b></li>`;
+  }).join("");
+  $("#wiz-body").innerHTML = `<h2>Ready</h2>
+    <p class="muted">Basic correction measures every clip of the current timeline and writes the result into the grade
+    version <span class="mono">DAVIGEN_AUTO</span>. Your own versions stay as they are.</p>
+    <ul class="wiz-summary">${chosen}</ul>
+    <label class="check"><input type="checkbox" id="w-re" ${wiz.options.recompute ? "checked" : ""}> Rebuild clips that already have DAVIGEN_AUTO</label>
+    <label class="check"><input type="checkbox" id="w-dry" ${wiz.options.dry_run ? "checked" : ""}> Dry run (report and markers only)</label>`;
+}
+document.addEventListener("input", (e) => {
+  const slider = e.target.closest(".cmp-slider");
+  if (slider) slider.closest(".compare").style.setProperty("--pos", `${slider.value}%`);
 });
+document.addEventListener("change", (e) => {
+  if (e.target.id === "w-re") wiz.options.recompute = e.target.checked;
+  if (e.target.id === "w-dry") wiz.options.dry_run = e.target.checked;
+});
+document.addEventListener("click", async (e) => {
+  const sample = e.target.closest("[data-wsample]");
+  if (sample) { wiz.sample = sample.dataset.wsample; return renderSetup(); }
+  const opt = e.target.closest("[data-wopt]");
+  if (opt) {
+    const dim = SETUP[wiz.step][0];
+    wiz.look[dim] = opt.dataset.wopt;
+    // only the right half of the comparison changes; the cards stay as they are
+    $$(".wiz-opt").forEach((b) => b.classList.toggle("on", b === opt));
+    const o = wiz.data.options[dim].find((x) => x.name === opt.dataset.wopt);
+    $("#cmp .cmp-b").src = previewSrc(opt.dataset.wopt, dim, 720);
+    $("#cmp .cmp-tag.b").textContent = o.label;
+    return;
+  }
+  if (e.target.closest("#wiz-back")) {
+    if (wiz.step === 0) return show("home");
+    wiz.step -= 1;
+    return renderSetup();
+  }
+  if (e.target.closest("#wiz-next")) {
+    if (wiz.step < SETUP.length) { wiz.step += 1; return renderSetup(); }
+    const r = await api("/api/basic/look", { look: wiz.look });
+    if (!r.ok) return notify(r.error || "Couldn't save the look");
+    return startBasic({ ...wiz.options, confirmed: true });
+  }
+});
+
+// live view while Basic correction writes: the clip being done, its keyframes, the last few as a film strip
+function renderLive(live) {
+  const box = $("#live");
+  if (!live || !live.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const cur = live[live.length - 1];
+  const src = (n) => `/basic/live.png?n=${n}&t=${encodeURIComponent(TOKEN)}`;
+  const ticks = (cur.keyframes || []).map((k) => `<i style="left:${(k * 100).toFixed(2)}%"></i>`).join("");
+  const bar = `<div class="kf-bar${cur.keyframes && cur.keyframes.length ? "" : " none"}">${ticks}<b style="left:${((cur.at || 0) * 100).toFixed(2)}%"></b></div>`;
+  box.innerHTML = `
+    <div class="live-now">
+      ${cur.image ? `<img alt="" src="${src(cur.n)}">` : '<div class="live-empty"></div>'}
+      <div class="live-cap"><b>${esc(cur.clip)}</b> <span class="muted">clip ${cur.index} of ${cur.total} · left as shot, right corrected</span></div>
+      ${bar}
+      <div class="muted small">${cur.keyframes && cur.keyframes.length
+        ? `${cur.keyframes.length} keyframes: ${esc(cur.reason)} · the white mark is the frame shown`
+        : "one set of values for the whole clip"}</div>
+    </div>
+    <div class="live-strip">${live.slice(0, -1).reverse().map((l) => l.image
+      ? `<figure><img alt="" src="${src(l.n)}"><figcaption>${esc(l.clip)}${l.keyframes && l.keyframes.length ? " · KF" : ""}</figcaption></figure>` : "").join("")}</div>`;
+}
 
 async function showBasicReport() {
   const r = await api("/api/basic/report");
@@ -1047,7 +1130,7 @@ $("#retry").addEventListener("click", heartbeat);
   if (i.catalog.needs_refresh && i.settings.online_sources) refreshCatalog();   // yearly, in the background
   if (location.hash === "#basic") {           // started from 'davigen Basic Correction' in Resolve's menu
     history.replaceState(null, "", location.pathname + location.search);
-    return startBasic({});
+    return showSetup();
   }
   show("home");
 })();

@@ -273,6 +273,7 @@ def _white_balance(m: ms.Measurement, settings: dict, values: dict, exposure: p.
     confidence -= conf["mixed_light"] * (m.mixed_light > fl["mixed_light"])
     confidence -= conf["changes"] * (m.mired_spread > fl["mired_spread"])
     values.update(cct_before=cct, duv_before=duv, cct_after=float(new_cct), duv_after=float(new_duv),
+                  look_kelvin=float(settings["white_balance"].get("look_kelvin", 0.0)),
                   wb_gains=[float(g) for g in gains])
     return cdl, _clamp(confidence), limited
 
@@ -289,6 +290,17 @@ def wb_target(cct: float, duv: float, settings: dict) -> tuple[float, float, boo
     limited = abs(duv_error) > wb["max_duv"]
     new_duv = duv - math.copysign(min(abs(duv_error), wb["max_duv"]), duv_error)
     return float(new_cct), float(new_duv), limited
+
+
+def warmth_cdl(m: ms.Measurement, exposure: p.Cdl, kelvin: float) -> p.Cdl:
+    """Node 02 for a clip whose light nobody knows: no balance, only the look's warmth – a neutral D65 white
+    turned into the white of 6504 + kelvin (identity for 0)."""
+    if abs(kelvin) < 1.0:
+        return p.Cdl()
+    neutral_duv = p.cct_duv(p.dwg_to_xy(np.ones(3)))[1]
+    d65 = p.xy_to_dwg(p.cct_duv_to_xy(6504.0, neutral_duv))
+    cdl, _ = white_balance_cdl(m, exposure, 6504.0 + kelvin, neutral_duv, illuminant=d65 / float(p.dwg_luminance(d65)))
+    return cdl
 
 
 def white_balance_cdl(m: ms.Measurement, exposure: p.Cdl, cct: float, duv: float, illuminant=None):

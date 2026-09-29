@@ -182,16 +182,14 @@
     </div>
   </section>
 
-  <!-- LOOK ------------------------------------------------------------------ -->
-  <section class="view" data-view="look" hidden>
-    <h1>Look</h1>
-    <p class="muted">What Basic correction aims for in this project. Each picture is a clip of the current timeline
-    corrected with that option, the other choices as they are set. The choice is saved with the project and used by
-    the next Basic correction; the button below runs it right away on the current timeline.</p>
-    <div id="look"></div>
+  <!-- BASIC CORRECTION SETUP --------------------------------------------- -->
+  <section class="view" data-view="basic-setup" hidden>
+    <h1>Basic correction</h1>
+    <ol class="wiz-steps" id="wiz-steps"></ol>
+    <div id="wiz-body"></div>
     <div class="actions">
-      <button class="ghost" id="look-back">Back</button>
-      <button class="primary" id="look-run" title="Basic correction on the current timeline with this look (existing DAVIGEN_AUTO versions are rebuilt)">Run Basic correction with this look</button>
+      <button class="ghost" id="wiz-back">Back</button>
+      <button class="primary" id="wiz-next">Next</button>
     </div>
   </section>
 
@@ -199,6 +197,7 @@
   <section class="view" data-view="run" hidden>
     <h1 id="run-title">Working…</h1>
     <ol id="progress" class="progress"></ol>
+    <div id="live" hidden></div>
     <pre id="error" class="error" hidden></pre>
     <div id="after" hidden>
       <div id="warnings"></div>

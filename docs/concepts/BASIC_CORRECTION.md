@@ -585,13 +585,17 @@ saves them with the project (`00_ADMIN/PROJECT_INFO/basic_correction/look.json`)
 
 | Dimension | Options | What changes |
 |---|---|---|
-| Brightness | Darker, **Even** (default), Brighter | every shot pulled half way to the whole timeline's picture brightness and colourfulness (night, dusk, silhouettes and snow keep theirs), the highlight target of §5.1 only a little (weight 0.2, ±0.4 stop); Darker / Brighter shift it all by ∓⅓ stop |
+| Brightness | Darker, **Even** (default), Brighter | every shot pulled half way to the whole timeline's picture brightness and colourfulness (night, dusk, silhouettes and snow keep theirs), the highlight target of §5.1 only a little (weight 0.2, ±0.4 stop); Darker / Brighter shift it all by ∓½ stop |
 | Contrast | Soft, **Medium** (default), Strong | the black and spread targets of §5.3 and the white target move together |
-| Colour temperature | Cool, **Neutral** (default), Warm | the white every light is balanced to, by +500 / 0 / −450 K |
-| Saturation | Muted, **Natural** (default), Rich | the chroma target × 0.85 / 1 / 1.15 |
+| Colour temperature | Cool, **Neutral** (default), Warm | the white every light is balanced to, by +800 / 0 / −700 K |
+| Saturation | Muted, **Natural** (default), Rich | the chroma target × 0.8 / 1 / 1.22 |
 
-Three choices each, so the setup is a quick decision per project. **Run Basic correction with this look** starts it
-right away. **Remove DAVIGEN_AUTO** (on the home screen) takes every clip of the current timeline back to the
+**Basic correction…** opens a short setup: one step per dimension, each with a large before/after of an example
+clip (drag the line: left the standard option, right the choice) and three even cards, then a summary and
+**Start**. Only the current step's pictures are made, from the choices so far; nothing is saved before the start.
+While it runs, a live view shows the clip being written (left as shot, right corrected), a bar with its keyframes
+and the frame shown, and a film strip of the last clips. The look's warmth also reaches clips whose light nobody
+knows (their balance is left alone, the warmth is added as a shift from D65). **Remove DAVIGEN_AUTO** (on the home screen) takes every clip of the current timeline back to the
 user's own version and deletes DAVIGEN_AUTO and davigen's markers, for a fresh start; the user's versions are
 never changed.
 

@@ -69,37 +69,34 @@ DEFAULTS: dict = {
     "look": {"brightness": "even", "contrast": "medium", "warmth": "neutral", "saturation": "natural"},
     "looks": {
         "brightness": {
-            "darker": {"label": "Darker", "exposure_offset": -0.33, "headroom_weight": 0.2, "headroom_max": 0.4,
+            "darker": {"label": "Darker", "exposure_offset": -0.5, "headroom_weight": 0.2, "headroom_max": 0.4,
                        "pull_to_project": 0.5,
-                       "about": "A third of a stop under the even level: moodier, richer colours in bright scenes."},
+                       "about": "Half a stop down: moodier, richer colours."},
             "even": {"label": "Even", "exposure_offset": 0.0, "headroom_weight": 0.2, "headroom_max": 0.4,
                      "pull_to_project": 0.5,
-                     "about": "Every shot at the same picture brightness, whatever the camera did: what an editor "
-                              "wants to cut. Night, dusk, silhouettes and snow keep their character."},
-            "brighter": {"label": "Brighter", "exposure_offset": 0.33, "headroom_weight": 0.2, "headroom_max": 0.4,
+                     "about": "Every shot at the same brightness – easy to cut."},
+            "brighter": {"label": "Brighter", "exposure_offset": 0.5, "headroom_weight": 0.2, "headroom_max": 0.4,
                          "pull_to_project": 0.5,
-                         "about": "A third of a stop over: light and airy, for summer, beach and lifestyle."},
+                         "about": "Half a stop up: light and airy."},
         },
         "contrast": {
-            "soft": {"label": "Soft", "black_shift": 0.02, "spread_shift": -0.06, "white_shift": -0.02,
-                     "about": "Open shadows and gentle tones: documentary, interviews, a light holiday look."},
+            "soft": {"label": "Soft", "black_shift": 0.03, "spread_shift": -0.09, "white_shift": -0.03,
+                     "about": "Open shadows, gentle tones: documentary, interviews."},
             "medium": {"label": "Medium", "black_shift": 0.0, "spread_shift": 0.0, "white_shift": 0.0,
-                       "about": "Clean blacks, whites under 90 %: where a colorist usually starts for travel "
-                                "and documentary."},
-            "strong": {"label": "Strong", "black_shift": -0.01, "spread_shift": 0.05, "white_shift": 0.03,
-                       "about": "Deep blacks and punchy mids: action, sport, a cinematic look."},
+                       "about": "Clean blacks, calm whites: the usual start."},
+            "strong": {"label": "Strong", "black_shift": -0.015, "spread_shift": 0.08, "white_shift": 0.04,
+                       "about": "Deep blacks, punchy mids: action, cinematic."},
         },
         "warmth": {
-            "cool": {"label": "Cool", "kelvin": 500, "about": "Crisp and modern: winter, cities, blue hour."},
-            "neutral": {"label": "Neutral", "kelvin": 0, "about": "White is white. The safe start, and what "
-                                                                  "matching several cameras needs."},
-            "warm": {"label": "Warm", "kelvin": -450,
-                     "about": "The classic travel and summer feel: golden light, healthy skin."},
+            "cool": {"label": "Cool", "kelvin": 800, "about": "Crisp and modern: cities, winter, blue hour."},
+            "neutral": {"label": "Neutral", "kelvin": 0, "about": "White is white – what matching cameras needs."},
+            "warm": {"label": "Warm", "kelvin": -700,
+                     "about": "Golden, summery, healthy skin."},
         },
         "saturation": {
-            "muted": {"label": "Muted", "chroma_scale": 0.85, "about": "Calm and filmic."},
+            "muted": {"label": "Muted", "chroma_scale": 0.8, "about": "Calm and filmic."},
             "natural": {"label": "Natural", "chroma_scale": 1.0, "about": "Colours as they were."},
-            "rich": {"label": "Rich", "chroma_scale": 1.15, "about": "Vivid: the social-media travel look."},
+            "rich": {"label": "Rich", "chroma_scale": 1.22, "about": "Vivid, the travel-video look."},
         },
     },
 }

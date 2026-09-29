@@ -87,6 +87,18 @@ class Reporter:
         self.error = ""
         self.result: dict = {}
         self.journal: transfer.Journal | None = None
+        self.live: list[dict] = []              # the latest pictures of a flow (Basic correction: clip by clip)
+        self.images: dict[int, bytes] = {}
+        self._shown = 0
+
+    def show(self, info: dict, png: bytes | None = None, keep: int = 12) -> None:
+        """A picture of what a flow is doing right now, for the UI's live view (kept: the last `keep`)."""
+        self._shown += 1
+        if png:
+            self.images[self._shown] = png
+        self.live = (self.live + [{**info, "n": self._shown, "image": bool(png)}])[-keep:]
+        for n in [n for n in self.images if n <= self._shown - keep]:
+            del self.images[n]
 
     def start(self, sid: str, detail: str = ""):
         self.steps[sid].update(state="running", detail=detail)
@@ -106,7 +118,7 @@ class Reporter:
 
     def snapshot(self) -> dict:
         return {"steps": list(self.steps.values()), "warnings": self.warnings, "manual": self.manual,
-                "done": self.done, "error": self.error, "result": self.result}
+                "done": self.done, "error": self.error, "result": self.result, "live": self.live}
 
 
 def run(flow, *args, rep: Reporter) -> None:
@@ -294,6 +306,9 @@ class _StepReporter:
 
     def warn(self, items: list[str]):
         self.rep.warn(items)
+
+    def show(self, info: dict, png: bytes | None = None) -> None:
+        self.rep.show(info, png)
 
 
 def _basic(resolve, cfg: Config, rep: Reporter, timelines_to_correct: list, base: Path, enabled: bool) -> None:

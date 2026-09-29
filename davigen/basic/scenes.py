@@ -216,7 +216,8 @@ def _pull(shot: Shot, hero: Shot, pull: float, fixed_pull: float | None, thresho
             cct, duv = hv["cct_after"], hv["duv_after"]
             shot.notes["white_balance"] = "from the scene"
         else:
-            corr.nodes[c.WHITE_BALANCE] = p.Cdl()   # nobody in the scene knows the light: leave it
+            # nobody in the scene knows the light: leave it, apart from the look's warmth
+            corr.nodes[c.WHITE_BALANCE] = c.warmth_cdl(m, exposure, settings_kelvin(shot))
             shot.notes["white_balance"] = "left alone (unsure)"
             if WB_UNSURE not in corr.flags:
                 corr.flags.append(WB_UNSURE)
@@ -240,6 +241,10 @@ def _pull(shot: Shot, hero: Shot, pull: float, fixed_pull: float | None, thresho
         changed = changed or shot is not hero
     if changed and MATCHED not in corr.flags:
         corr.flags.append(MATCHED)
+
+
+def settings_kelvin(shot: Shot) -> float:
+    return float(shot.correction.values.get("look_kelvin", 0.0))
 
 
 def _mix(a, b, t: float) -> list:
