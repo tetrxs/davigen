@@ -5,8 +5,9 @@ The clip's correction (correct.py, scenes.py) is right for its median frame. Whe
 during the shot, davigen measures more frames around the change (`extra_frames`) and keyframes nodes 01 and 02 so
 that each moment lands close to where the median frame does. Small moves around the median are composition, not
 light, and stay alone (a dead zone); beyond it a share of the change is corrected, so a tunnel still reads darker
-than the street after it. A moment whose exposure moves also gets its own black point (the street's contrast would
-crush a lifted tunnel); saturation stays constant. Every number is in [basic_correction.dynamic].
+than the street after it. Only nodes 01 and 02 get keyframes (Offset, exact in Resolve); contrast and saturation
+stay one value each, the contrast solved on every moment as its own exposure leaves it. Every number is in
+[basic_correction.dynamic].
 """
 
 from __future__ import annotations
@@ -122,16 +123,21 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
     static_stops = c._offset_to_stops(key_di, exp_static.offset[0])
     anchor, _ = c.white_balance_cdl(m, exp_static, *c.wb_target(m.cct, m.duv, settings)[:2])
 
-    con_static = corr.nodes[c.CONTRAST]
-    stops_out, offsets, wbs, kelvins, own_contrast = [], [], [], [], []
+    # node 03 multiplies what is left of a moment's distance from the clip's key by its contrast; the lift is
+    # scaled so that after contrast (1 − follow) of the move remains, as it would without contrast
+    slope = corr.nodes[c.CONTRAST].slope[0]
+    gain = max(1.0, (1.0 - (1.0 - dy["follow"]) / max(slope, 1.0)) / max(dy["follow"], 1e-6))
+    stops_out, offsets, wbs, kelvins = [], [], [], []
     for f, k, light, mired, thumb in zip(frames, keys, lights, mireds, thumbs):
         # exposure: the part of the key's move beyond the dead zone, `follow` of it
         stops = static_stops
         if exposure_moves:
-            stops = static_stops + dy["follow"] * _dead(median_key - k, dy["dead_stops"])
-            stops = min(max(stops, -ex["max_stops_down"]), ex["max_stops_up"])
+            stops = static_stops + gain * dy["follow"] * _dead(median_key - k, dy["dead_stops"])
+            # a moment may be lifted further than a whole clip: a tunnel is seconds, not the shot
+            stops = min(max(stops, -ex["max_stops_down"]), max(ex["max_stops_up"], dy["max_stops_up"]))
             if stops > static_stops:
-                stops = _hold_highlights(thumb, output_lut, float(k), static_stops, stops, settings)
+                stops = _hold_highlights(thumb, output_lut, float(k), static_stops, stops, settings,
+                                         dy["hold_percentile"])
         mk = dataclasses.replace(m, exposure_stops=float(k))
         exp_cdl = _exposure_at(float(k), stops) if exposure_moves else exp_static
         # white balance: the static node plus how much this moment's light differs from the clip's
@@ -146,42 +152,54 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
         wb = p.Cdl(offset=tuple(float(s + h - a) for s, h, a in zip(wb_static.offset, here.offset, anchor.offset)))
         if wb_static.is_identity:
             wb = wb_static
-        # the frame's own black point: the street's contrast would crush a lifted tunnel
-        own = con_static
-        if exposure_moves and abs(stops - static_stops) > 1e-3:
-            sim = c._Sim([np.asarray(thumb, dtype="float64")[..., :3]], output_lut, m.clip_level,
-                         settings["measure"]["clip_tolerance"])
-            own = c._contrast(m, sim, [exp_cdl, wb], settings, {})[0]
-        own_contrast.append(own)
         stops_out.append(float(stops - static_stops))
         offsets.append(exp_cdl)
         wbs.append(wb)
         kelvins.append(float(1e6 / mired))
 
-    # contrast: a moment whose exposure moves by contrast_follow_stops or more gets its own (smoothed over three
-    # samples), one that stays with the clip keeps the clip's, and in between a blend
-    slopes = _median3(np.array([n.slope[0] for n in own_contrast]))
-    pivots = _median3(np.array([_pivot(n) for n in own_contrast]))
-    s0, p0 = con_static.slope[0], _pivot(con_static)
-    cons = []
-    for st, sl, pv in zip(stops_out, slopes, pivots):
-        w = min(1.0, abs(st) / dy["contrast_follow_stops"]) if exposure_moves else 0.0
-        k, pivot = s0 + w * (sl - s0), p0 + w * (pv - p0)
-        cons.append(con_static if w == 0.0 else p.Cdl(slope=(k,) * 3, offset=(pivot * (1.0 - k),) * 3))
-
-    keep = _simplify(frames, [np.array([o.offset[0], *w.offset, n.offset[0], 0.3 * (n.slope[0] - 1.0)])
-                              for o, w, n in zip(offsets, wbs, cons)],
+    keep = _simplify(frames, [np.array([o.offset[0], *w.offset]) for o, w in zip(offsets, wbs)],
                      dy["tolerance_stops"] * p.STOP, dy["max_keyframes"])
     if len(keep) < 2:
         return None
+    # contrast can't be keyframed exactly in Resolve (its Contrast is an S-curve, concept §12), so it stays one
+    # value, solved on every moment as nodes 01 and 02 leave it: the street's contrast alone crushed a lifted tunnel
+    contrast = corr.nodes[c.CONTRAST]
+    if exposure_moves:
+        sim = c._Sim([np.asarray(t, dtype="float64")[..., :3] for t in thumbs], output_lut, m.clip_level,
+                     settings["measure"]["clip_tolerance"])
+        sim.frames = [p.apply_nodes(f, [o, w]) for f, o, w in zip(sim.frames, offsets, wbs)]
+        contrast = c._contrast(m, sim, [], settings, {})[0]
+        contrast = _dont_crush(contrast, sim, stops_out, settings)
     pick = [frames.index(f) for f in keep]
     reason = " and ".join(x for x, on in (("exposure", exposure_moves), ("white balance", wb_moves)) if on)
     return Keyframes(
         frames=keep,
         nodes={c.EXPOSURE: [offsets[i] for i in pick], c.WHITE_BALANCE: [wbs[i] for i in pick],
-               c.CONTRAST: [cons[i] for i in pick], c.SATURATION: [corr.nodes[c.SATURATION]] * len(pick)},
+               c.CONTRAST: [contrast] * len(pick), c.SATURATION: [corr.nodes[c.SATURATION]] * len(pick)},
         stops=[stops_out[i] for i in pick], kelvin=[kelvins[i] for i in pick],
         reason=f"{reason} change within the shot")
+
+
+def _dont_crush(contrast: p.Cdl, sim, stops: list[float], settings: dict) -> p.Cdl:
+    """Less contrast when it would push the lifted moments' black point (the tunnel) under the band's lower end."""
+    lifted = [i for i, st in enumerate(stops) if st >= settings["dynamic"]["dead_stops"]]
+    k0 = contrast.slope[0]
+    if not lifted or k0 <= 1.0:
+        return contrast
+    pivot = _pivot(contrast)
+    floor = settings["contrast"]["black"][0]
+
+    def black(k):
+        node = p.Cdl(slope=(k,) * 3, offset=(pivot * (1.0 - k),) * 3)
+        ys = []
+        for i in lifted:
+            d = p.luminance(p.apply_lut(p.apply_cdl(sim.frames[i], node), sim.output_lut))
+            ys.append(np.percentile(d, 0.5))
+        return float(np.median(ys))
+    if black(k0) >= floor:
+        return contrast
+    k = c._bisect(black, floor, 1.0, k0) if black(1.0) >= floor else 1.0
+    return p.Cdl(slope=(k,) * 3, offset=(pivot * (1.0 - k),) * 3)
 
 
 def _pivot(cdl: p.Cdl) -> float:
@@ -200,13 +218,16 @@ def _normalise(rgb) -> np.ndarray:
     return rgb / max(float(p.dwg_luminance(rgb)), 1e-9)
 
 
-def _hold_highlights(thumb, output_lut, key: float, static_stops: float, stops: float, settings: dict) -> float:
-    """Brighten a frame only while its highlights have room (as correct.py does for the whole clip)."""
+def _hold_highlights(thumb, output_lut, key: float, static_stops: float, stops: float, settings: dict,
+                     percentile: float = 99.5) -> float:
+    """Brighten a frame only while its highlights have room (as correct.py does for the whole clip). A lifted
+    moment may let a small part of the frame go to white – the end of a tunnel, its lamps – so it checks a lower
+    percentile."""
     frame = np.asarray(thumb, dtype="float64")[..., :3]
 
     def white(st):
         y = p.luminance(p.apply_lut(p.apply_cdl(frame, _exposure_at(key, st)), output_lut))
-        return float(np.percentile(y, 99.5))
+        return float(np.percentile(y, percentile))
     cap = max(settings["contrast"]["white_max"], white(static_stops))
     if white(stops) <= cap:
         return stops

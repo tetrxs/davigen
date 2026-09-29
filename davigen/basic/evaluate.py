@@ -167,7 +167,8 @@ def render_versions(resolve, project, timeline, picks: list[tuple], width: int, 
         for version in versions:
             for item, _, _ in picks:
                 item.LoadVersionByName(version, 0)
-            batch = []
+            # one job per render: several jobs queued right after a grade change sometimes rendered the later
+            # frames with the old grade (seen in Resolve 21, concept §12)
             for n, (item, frame, key) in enumerate(picks):
                 folder = tmp / f"{version}_{n}"
                 folder.mkdir()
@@ -178,13 +179,11 @@ def render_versions(resolve, project, timeline, picks: list[tuple], width: int, 
                 if not job:
                     raise ResolveError("Resolve didn't accept an evaluation render job")
                 jobs.append(job)
-                batch.append((job, folder, key))
-            project.StartRendering([j for j, _, _ in batch])
-            while project.IsRenderingInProgress():
-                if progress:
-                    progress(version)
-                time.sleep(0.3)
-            for job, folder, key in batch:
+                project.StartRendering([job])
+                while project.IsRenderingInProgress():
+                    if progress:
+                        progress(version)
+                    time.sleep(0.2)
                 files = sorted(folder.glob("*.tif*"))
                 if files:
                     out[(key, version)] = sampling.read_tiff(files[0])
@@ -265,7 +264,10 @@ def _simulator_error(entry: dict, rendered, cache) -> float | None:
     from .preview import nodes_at  # noqa: PLC0415
     chain = nodes_at(entry, frame)                  # keyframes interpolated at the frame, as Resolve renders them
     simulated = p.apply_lut(p.apply_nodes(p.apply_lut(sampling.to_float(thumb), luts[0]), chain), luts[1])
-    real = sampling.thumbnail(rendered, simulated.shape[1])
-    h = min(real.shape[0], simulated.shape[0])
-    return float(np.abs(sampling.to_float(real)[:h] - simulated[:h]).mean())
+    # the analysis render and the timeline don't frame a clip alike (another aspect ratio, a crop), so the check
+    # compares the distributions: 99 quantiles per channel, not pixel by pixel
+    real = sampling.to_float(rendered)
+    q = np.linspace(1, 99, 99)
+    return float(np.mean([np.abs(np.percentile(real[..., ch], q) - np.percentile(simulated[..., ch], q)).mean()
+                          for ch in range(3)]))
 

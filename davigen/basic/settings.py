@@ -57,9 +57,9 @@ DEFAULTS: dict = {
     },
     "dynamic": {
         "enabled": True, "min_change_stops": 1.5, "min_change_mired": 30, "min_wb_confidence": 0.6,
-        "dead_stops": 0.75, "dead_mired": 15, "follow": 0.75, "wb_follow": 0.8,
+        "dead_stops": 0.75, "dead_mired": 15, "follow": 0.75, "wb_follow": 0.8, "max_stops_up": 3.0, "hold_percentile": 97.0,
         "refine_step_stops": 0.4, "refine_step_mired": 20, "refine_frames": 6, "refine_passes": 2,
-        "contrast_follow_stops": 1.0, "tolerance_stops": 0.05, "max_keyframes": 16,
+        "tolerance_stops": 0.05, "max_keyframes": 16,
     },
     "scenes": {"gap_minutes": 10, "split_ev": 3.0, "split_cct": 1500, "pull_to_scene": 0.3, "pull_fixed_wb": 0.7, "pull_chroma": 0.5},
     "learning": {"rate": 0.5, "max_exposure": 1.0, "max_kelvin": 1500, "max_black": 0.03, "chroma": [0.7, 1.4]},

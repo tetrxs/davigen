@@ -334,7 +334,8 @@ def _retime(track: Message, times: list[int]) -> list[Field]:
     return [base] + timed
 
 
-def make_keyframe_drx(template_text: str, frames: list[int], nodes: dict[str, list[dict[int, float]]]) -> str:
+def make_keyframe_drx(template_text: str, frames: list[int], nodes: dict[str, list[dict[int, float]]],
+                      static: tuple[str, ...] = ()) -> str:
     """A grade whose nodes carry primaries keyframes at the given source frames.
 
     nodes: label → one {parameter id: value} per frame (the same ids each time). The base value is the first
@@ -356,6 +357,9 @@ def make_keyframe_drx(template_text: str, frames: list[int], nodes: dict[str, li
     for label, blk in blocks.items():
         track9 = next(x for x in blk if x.number == 9).message
         for track in (x for x in track9 if x.number == 1 and x.message is not None):
+            if label in static:                 # only the base value: a node without keyframes
+                track.message[:] = [f for f in track.message if f.number != 6 or _int(f.message, 1) is None]
+                continue
             entries = _retime(track.message, frames)
             if label in nodes and _int(track.message, 1) == PRIMARIES_TRACK:
                 _set_params(entries[0], nodes[label][0])

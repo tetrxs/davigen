@@ -51,3 +51,10 @@ def test_rejects_bad_input(template):
         drx.make_keyframe_drx(template, [10, 20], {"01_EXPOSURE": [{}]})
     with pytest.raises(ValueError):
         drx.make_keyframe_drx(template, [10], {"99_NOPE": [{}]})
+
+
+def test_static_nodes_have_no_keyframes(template):
+    text = drx.make_keyframe_drx(template, [10, 20], {"01_EXPOSURE": [{drx.P_OFFSET[0]: 0.0}, {drx.P_OFFSET[0]: 0.1}]},
+                                 static=("03_CONTRAST",))
+    kf = drx.read_keyframes(text)
+    assert [t for t, _ in kf["03_CONTRAST"]] == [None] and [t for t, _ in kf["01_EXPOSURE"]] == [None, 10, 20]

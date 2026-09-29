@@ -144,8 +144,8 @@ def labels(graph) -> tuple[str, ...]:
 
 
 def params(label: str, cdl: p.Cdl) -> dict[int, float]:
-    """A node's CDL as primaries parameters (concept §12): nodes 01–02 are offsets, 03 contrast around a pivot,
-    04 saturation with Lum Mix 0 (what SetCDL sets too)."""
+    """A node's CDL as primaries parameters (concept §12): nodes 01–02 are offsets (exact), 03 contrast around a
+    pivot (an S-curve in Resolve, so davigen writes node 03 with SetCDL), 04 saturation with Lum Mix 0."""
     if label in (c.EXPOSURE, c.WHITE_BALANCE):
         return {pid: o / drx.OFFSET_SCALE for pid, o in zip(drx.P_OFFSET, cdl.offset)}
     if label == c.CONTRAST:
@@ -157,8 +157,13 @@ def params(label: str, cdl: p.Cdl) -> dict[int, float]:
     raise ValueError(label)
 
 
+KEYFRAMED = (c.EXPOSURE, c.WHITE_BALANCE)          # Offset: exact as keyframes (concept §12)
+
+
 def _write_keyframes(item, kf: Keyframes, folder: Path, out: Outcome) -> bool:
-    """Replace DAVIGEN_AUTO's grade by the keyframed structure. False: fall back to constant values."""
+    """Replace DAVIGEN_AUTO's grade by davigen's structure with keyframes on nodes 01 and 02, then SetCDL the
+    constant nodes 03 and 04 (exact; Resolve's Contrast parameter is an S-curve). False: fall back to constant
+    values."""
     graph = item.GetNodeGraph()
     if labels(graph) != STRUCTURE:
         out.warnings.append("keyframes skipped: the nodes differ from davigen's structure – constant values written")
@@ -167,9 +172,10 @@ def _write_keyframes(item, kf: Keyframes, folder: Path, out: Outcome) -> bool:
     name = "".join(ch if ch.isalnum() else "_" for ch in str(item.GetUniqueId() if hasattr(item, "GetUniqueId")
                                                             else item.GetName()))
     target = folder / f"{name}.drx"
-    nodes = {label: [params(label, cdl) for cdl in kf.nodes[label]] for label in c.NODES}
-    target.write_text(drx.make_keyframe_drx(drx.KEYFRAME_TEMPLATE.read_text(encoding="utf-8"), kf.frames, nodes),
-                      encoding="utf-8")
+    nodes = {label: [params(label, cdl) for cdl in kf.nodes[label]] for label in KEYFRAMED}
+    static = tuple(label for label in STRUCTURE if label not in KEYFRAMED)
+    target.write_text(drx.make_keyframe_drx(drx.KEYFRAME_TEMPLATE.read_text(encoding="utf-8"), kf.frames, nodes,
+                                            static=static), encoding="utf-8")
     try:
         ok = bool(graph.ApplyGradeFromDRX(str(target), KEYFRAME_MODE))
     except Exception as e:  # noqa: BLE001
@@ -181,7 +187,17 @@ def _write_keyframes(item, kf: Keyframes, folder: Path, out: Outcome) -> bool:
         if labels(graph) != STRUCTURE and color.CLIP_TEMPLATE.exists():
             graph.ApplyGradeFromDRX(str(color.CLIP_TEMPLATE), 0)
         return False
-    out.written = {label: True for label in c.NODES}
+    indices = node_indices(graph)
+    out.written = {label: True for label in KEYFRAMED}
+    for label in (c.CONTRAST, c.SATURATION):
+        try:
+            done = bool(item.SetCDL(kf.nodes[label][0].to_resolve(indices[label])))
+        except Exception as e:  # noqa: BLE001
+            done = False
+            out.warnings.append(f"SetCDL on {label}: {e}")
+        out.written[label] = done
+        if not done:
+            out.warnings.append(f"Resolve refused the values for {label}")
     out.keyframes = len(kf.frames)
     return True
 

@@ -204,7 +204,9 @@ class TimelineItem:
         self.calls.append("SetCDL")
         if self.refuse_cdl:
             return False
-        if self.versions[self.current].get("keyframes"):
+        grade = self.versions[self.current]
+        label = grade["labels"][int(cdl["NodeIndex"]) - 1] if int(cdl["NodeIndex"]) <= len(grade["labels"]) else ""
+        if label in grade.get("keyframes", {}):
             self.calls.append("SetCDL into keyframes")
             return True                     # Resolve says yes but writes into one keyframe only (verified)
         self.versions[self.current]["cdl"][int(cdl["NodeIndex"])] = cdl
@@ -410,12 +412,16 @@ class Project:
         log = ti.mpi.log_frame(frame)
         group = ti.group or next(g for g in self.groups if g.name == ti.mpi.group)
         img = p.apply_lut(log, group.pre.lut)
-        for label, rows in ti.versions[ti.current].get("keyframes", {}).items():
-            img = p.apply_cdl(img, keyframed_cdl(label, rows, frame))
-        for _, cdl in sorted(ti.versions[ti.current]["cdl"].items()):
-            nums = {k: [float(v) for v in cdl[k].split()] for k in ("Slope", "Offset", "Power", "Saturation")}
-            img = p.apply_cdl(img, p.Cdl(tuple(nums["Slope"]), tuple(nums["Offset"]), tuple(nums["Power"]),
-                                         nums["Saturation"][0]))
+        grade = ti.versions[ti.current]
+        keyed = grade.get("keyframes", {})
+        for n, label in enumerate(grade["labels"], 1):          # node by node, in order
+            if label in keyed:
+                img = p.apply_cdl(img, keyframed_cdl(label, keyed[label], frame))
+            elif n in grade["cdl"]:
+                cdl = grade["cdl"][n]
+                nums = {k: [float(v) for v in cdl[k].split()] for k in ("Slope", "Offset", "Power", "Saturation")}
+                img = p.apply_cdl(img, p.Cdl(tuple(nums["Slope"]), tuple(nums["Offset"]), tuple(nums["Power"]),
+                                             nums["Saturation"][0]))
         return p.apply_lut(img, group.post.lut)
 
     def StartRendering(self, jobs):

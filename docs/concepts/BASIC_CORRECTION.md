@@ -460,10 +460,13 @@ tested there unless it says *untested*.
   ramp 0 → 0.1 over 24 frames renders exactly the unchanged picture at the first keyframe and, halfway, the same
   picture as `SetCDL` offset 0.05 (mean difference 0.0001), in a freshly added version too; the user's version stays
   untouched. Constant exposure, white balance and saturation keyframes match `SetCDL` exactly (0.00000).
-- **Contrast is not exact:** Resolve's Contrast parameter rolls off towards black and white, so c = 1.2 differs
-  from `SetCDL` slope/offset by 0.7 % of display on average and up to 5 % at the extremes. Gain + Offset and
-  Master Gain + Offset were no closer. Keyframed clips therefore get a slightly softer contrast at the ends than
-  the simulator predicts.
+- **Contrast can't be keyframed exactly:** measured on code values of an ungrouped clip, Resolve's Contrast
+  parameter is far from `out = pivot + c · (in − pivot)` at higher values (c = 1.73: rms 0.10 off a line), and the
+  per-channel Gain parameters (100663325–327) barely act on their own. Offset (100663421–423) is exact. So davigen
+  keyframes nodes 01 and 02 only. A node whose tracks keep only their base entry has no keyframes, and `SetCDL`
+  on it after the grade file is exact.
+- On the MARSEILLE timeline, frames rendered by Resolve from `DAVIGEN_AUTO` match davigen's simulation (ffmpeg
+  decode, input LUT, nodes, output LUT) within 0.3–0.5 % of display for constant clips.
 - **Keyframes stay:** a grade file without keyframes (`ApplyGradeFromDRX`, any mode) leaves existing keyframes in
   place, and `SetCDL` then writes into only one of them. What does work: `LoadVersionByName(user)`,
   `DeleteVersionByName("DAVIGEN_AUTO")`, `AddVersion("DAVIGEN_AUTO")` gives a clean copy of the user's version.
@@ -527,11 +530,15 @@ keyframing exposure by hand on every such clip is exactly the chore davigen shou
 3. **Follow it partly.** Beyond the dead zone `follow` (75 %) of the change is corrected, within the exposure
    limits of §5.1 and only while the highlights have room: the tunnel is lifted, but still reads darker than the
    street. White balance follows the measured light the same way (`wb_follow` 80 %).
-4. **Its own black point.** The clip's contrast is solved on its median frames: on P1000074 (a drive through a
-   tunnel near Marseille) that is the bright motorway, and contrast 1.7 crushed the lifted tunnel to black. A
-   moment whose exposure moves by `contrast_follow_stops` (1 stop) or more therefore gets its own contrast from
-   the same solve (§5.3) on that frame, smoothed over three samples; smaller moves blend towards the clip's value,
-   so frames that stay with the clip keep it exactly. Saturation stays constant.
+4. **Only nodes 01 and 02 get keyframes.** Their Offset is exact as a keyframe; Resolve's Contrast parameter is
+   not (§12), so nodes 03–06 carry no keyframes and davigen writes 03 and 04 with `SetCDL` afterwards, which is
+   exact (verified: 0.00001 at the keyframe, 0.00006 between). On P1000074 (a drive through a tunnel near
+   Marseille) the clip's contrast, solved on the bright motorway, crushed the lifted tunnel. So for a keyframed
+   clip the contrast is solved on every moment as nodes 01 and 02 leave it; the lift is scaled so that after
+   contrast (1 − `follow`) of the move remains; a moment may be lifted up to `dynamic.max_stops_up` (3 stops,
+   against 1.5 for a whole clip: a tunnel lasts seconds); and it may push its brightest 3 % (the exit, the lamps)
+   to white (`hold_percentile`). The tunnel then reads like a hand-ridden exposure: walls visible, the exit
+   slightly blown.
    Frames with nothing to measure (lens covered, all sky: fewer than 16 pixels between near black and clipped)
    are left out and bridged; before this they read as a key of exactly 0 and produced keyframes of their own.
 5. **Few keyframes.** Douglas–Peucker keeps only the frames a straight line can't replace within

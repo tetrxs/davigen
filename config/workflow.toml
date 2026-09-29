@@ -286,11 +286,12 @@ dead_stops = 0.75                   # moves up to this around the shot's median 
 dead_mired = 15
 follow = 0.75                       # … beyond it, this share is corrected (1 evens it out; less keeps a tunnel darker)
 wb_follow = 0.8
+max_stops_up = 3.0                  # a moment (a tunnel) may be lifted this far; a whole clip only exposure.max_stops_up
+hold_percentile = 97.0              # a lifted moment may push the brightest 3 % (a tunnel's exit, lamps) to white
 refine_step_stops = 0.4             # neighbouring samples further apart than this get more samples in between …
 refine_step_mired = 20
 refine_frames = 6                   # … this many per gap, in up to refine_passes extra renders
 refine_passes = 2
-contrast_follow_stops = 1.0         # a moment lifted or lowered this much gets its own black point (less: a blend)
 tolerance_stops = 0.05              # a keyframe goes where a straight line between its neighbours is further off than this
 max_keyframes = 16
 

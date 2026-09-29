@@ -56,17 +56,18 @@ def test_tunnel_exit_gets_a_ramp(out_lut):
     kf = dyn.plan(frames, meas.per_sample, meas, corr, thumbs, out_lut, S)
     assert kf is not None and "exposure" in kf.reason
     assert kf.frames[0] == 0 and kf.frames[-1] == 150 and 50 in kf.frames and 75 in kf.frames
-    assert len(kf.frames) <= 5                                          # flat stretches need few keyframes
+    assert len(kf.frames) <= 4                                          # flat stretches need no keyframes
     i_in, i_out = kf.frames.index(50), kf.frames.index(75)
     # the street after the tunnel keeps the static correction; the tunnel is lifted by 75 % beyond the dead zone,
     # up to the exposure limit (lifting further only lifts noise)
     assert kf.stops[i_out] == pytest.approx(0.0, abs=0.05)
     static_stops = corr.values["exposure_stops"]
-    lift = min(0.75 * (3.4 - 0.5), S["exposure"]["max_stops_up"] - static_stops)
-    assert kf.stops[i_in] == pytest.approx(lift, abs=0.1)
+    # beyond the dead zone, 75 % of the move (more with the clip's contrast), up to the moment limit of +3 stops
+    assert 0.75 * (3.4 - S["dynamic"]["dead_stops"]) - 0.1 <= kf.stops[i_in]
+    assert static_stops + kf.stops[i_in] <= S["dynamic"]["max_stops_up"] + 1e-6
     assert key_after(thumbs[2], kf, i_in) > keys[2] + 1.0
-    # the street keeps the clip's contrast, the lifted tunnel gets its own; saturation is the same everywhere
-    assert kf.nodes[c.CONTRAST][i_out] == corr.nodes[c.CONTRAST]
+    # contrast and saturation are one value each (Resolve can't keyframe contrast exactly)
+    assert len({repr(x) for x in kf.nodes[c.CONTRAST]}) == 1
     assert len({repr(x) for x in kf.nodes[c.SATURATION]}) == 1
 
 
