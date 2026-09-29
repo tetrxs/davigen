@@ -152,7 +152,7 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
     scenes.match_scenes(shots, s)
     for it in measurable:
         it.keyframes = dynamic.plan(it.all_frames, it.all_samples, it.measurement, it.shot.correction,
-                                    it.all_thumbs, it.luts[1], s)
+                                    it.all_thumbs, it.luts[1], s, fps=it.fps)
         if it.keyframes:                    # its contrast was solved on every moment: the clip's one value now
             con = it.keyframes.nodes[c.CONTRAST][0]
             it.shot.correction.nodes[c.CONTRAST] = con

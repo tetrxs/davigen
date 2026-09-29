@@ -60,12 +60,10 @@ def keyframed_cdl(label, rows, frame):
     at = {k: float(np.interp(frame, frames, [v.get(k, 0.0) for _, v in rows])) for k in ids}
     if drx.P_OFFSET[0] in at:
         return p.Cdl(offset=tuple(at[k] * drx.OFFSET_SCALE for k in drx.P_OFFSET))
-    if drx.P_CONTRAST in at:
-        k, pivot = at[drx.P_CONTRAST], at.get(drx.P_PIVOT, p.GREY)
-        return p.Cdl(slope=(k, k, k), offset=(pivot * (1 - k),) * 3)
-    if drx.P_SATURATION in at:
-        return p.Cdl(sat=at[drx.P_SATURATION])
-    return p.Cdl()
+    k, pivot = at.get(drx.P_CONTRAST, 1.0), at.get(drx.P_PIVOT, 0.435)
+    if k > 1.0:
+        raise AssertionError("davigen must not keyframe a Contrast above 1 (an S-curve in Resolve)")
+    return p.Cdl(slope=(k, k, k), offset=(pivot * (1 - k),) * 3, sat=at.get(drx.P_SATURATION, 1.0))
 
 
 class GroupGraph:

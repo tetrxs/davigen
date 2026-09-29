@@ -33,8 +33,40 @@ class Keyframes:
     reason: str = ""
 
     def to_dict(self) -> dict:
+        node03, node04 = resolve_nodes(self)
         return {"frames": list(self.frames), "stops": list(self.stops), "kelvin": list(self.kelvin),
-                "reason": self.reason, "nodes": {k: [v.to_dict() for v in vs] for k, vs in self.nodes.items()}}
+                "reason": self.reason, "nodes": {k: [v.to_dict() for v in vs] for k, vs in self.nodes.items()},
+                "resolve": {"03": node03.to_dict(), "04": node04}}
+
+
+HEADROOM = 1.05         # node 03 is set this much above the highest contrast, so node 04 always takes some back
+
+
+def resolve_nodes(kf: Keyframes) -> tuple[p.Cdl, list[dict]]:
+    """How the keyframes are written into Resolve (concept §12): Resolve's Contrast is exact only up to 1, so node
+    03 holds the clip's highest contrast as a constant CDL (SetCDL), and node 04 takes the rest back per keyframe
+    with a Contrast ≤ 1 around a pivot, plus the saturation. Returns (node 03, [{contrast, pivot, sat}] per
+    keyframe); composed they give exactly each keyframe's contrast node."""
+    cons, sats = kf.nodes[c.CONTRAST], kf.nodes[c.SATURATION]
+    top = max(n.slope[0] for n in cons)
+    if top <= 1.0 + 1e-6:
+        node03 = p.Cdl()
+    else:
+        k3 = top * HEADROOM
+        best = max(cons, key=lambda n: n.slope[0])
+        node03 = p.Cdl(slope=(k3,) * 3, offset=(_pivot(best) * (1.0 - k3),) * 3)
+    k3, o3 = node03.slope[0], node03.offset[0]
+    rows = []
+    for n, sat in zip(cons, sats):
+        k = n.slope[0] / k3
+        pivot = (n.offset[0] - k * o3) / (1.0 - k) if abs(1.0 - k) > 1e-6 else p.GREY
+        rows.append({"contrast": float(k), "pivot": float(pivot), "sat": float(sat.sat)})
+    return node03, rows
+
+
+def node04_cdl(row: dict) -> p.Cdl:
+    k = row["contrast"]
+    return p.Cdl(slope=(k,) * 3, offset=(row["pivot"] * (1.0 - k),) * 3, sat=row["sat"])
 
 
 # ------------------------------------------------------------------------------------------------ series
@@ -87,7 +119,7 @@ def _dead(delta: float, dead: float) -> float:
 
 
 def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Correction, thumbs: list,
-         output_lut, settings: dict) -> Keyframes | None:
+         output_lut, settings: dict, fps: float = 25.0) -> Keyframes | None:
     """Keyframes for a clip whose light changes, or None when one set of values fits the whole shot.
 
     frames / samples / thumbs: every measured frame of the clip in time order (samples are Measurement.per_sample
@@ -127,22 +159,36 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
     # scaled so that after contrast (1 − follow) of the move remains, as it would without contrast
     slope = corr.nodes[c.CONTRAST].slope[0]
     gain = max(1.0, (1.0 - (1.0 - dy["follow"]) / max(slope, 1.0)) / max(dy["follow"], 1e-6))
-    stops_out, offsets, wbs, kelvins = [], [], [], []
-    for f, k, light, mired, thumb in zip(frames, keys, lights, mireds, thumbs):
-        # exposure: the part of the key's move beyond the dead zone, `follow` of it
+    # what each moment asks for: exposure against the clip's correction, and the share of its own light
+    times = np.asarray(frames, dtype="float64") / max(fps, 1.0)
+    wanted, ceiling, shares = [], [], []
+    for k, mired, thumb in zip(keys, mireds, thumbs):
         stops = static_stops
         if exposure_moves:
             stops = static_stops + gain * dy["follow"] * _dead(median_key - k, dy["dead_stops"])
             # a moment may be lifted further than a whole clip: a tunnel is seconds, not the shot
             stops = min(max(stops, -ex["max_stops_down"]), max(ex["max_stops_up"], dy["max_stops_up"]))
-            if stops > static_stops:
-                stops = _hold_highlights(thumb, output_lut, float(k), static_stops, stops, settings,
-                                         dy["hold_percentile"])
-        mk = dataclasses.replace(m, exposure_stops=float(k))
-        exp_cdl = _exposure_at(float(k), stops) if exposure_moves else exp_static
-        # white balance: the static node plus how much this moment's light differs from the clip's
+        top = stops
+        if stops > static_stops:
+            top = _hold_highlights(thumb, output_lut, float(k), static_stops, stops, settings, dy["hold_percentile"])
+        wanted.append(min(stops, top))
+        ceiling.append(top)
+        share = 0.0
         if wb_moves and abs(mired - median_mired) > dy["dead_mired"]:
             share = dy["wb_follow"] * _dead(mired - median_mired, dy["dead_mired"]) / (mired - median_mired)
+        shares.append(share)
+    # as a colorist rides it: smoothed over smooth_seconds, never faster than max_stops_per_second, and never
+    # above what a moment's highlights allow
+    ride = _rate_limit(times, _smooth_time(times, np.array(wanted), dy["smooth_seconds"]), dy["max_stops_per_second"])
+    ride = np.minimum(ride, np.array(ceiling))
+    shares = np.clip(_smooth_time(times, np.array(shares), dy["smooth_seconds"]), 0.0, 1.0)
+
+    stops_out, offsets, wbs, kelvins = [], [], [], []
+    for k, light, mired, stops, share in zip(keys, lights, mireds, ride, shares):
+        mk = dataclasses.replace(m, exposure_stops=float(k))
+        exp_cdl = _exposure_at(float(k), float(stops)) if exposure_moves else exp_static
+        # white balance: the static node plus how much this moment's light differs from the clip's
+        if share > 0:
             use = _normalise(np.asarray(m.illuminant) ** (1 - share) * light ** share)
         else:
             use = np.asarray(m.illuminant, dtype="float64")
@@ -178,6 +224,28 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
                c.CONTRAST: [contrast] * len(pick), c.SATURATION: [corr.nodes[c.SATURATION]] * len(pick)},
         stops=[stops_out[i] for i in pick], kelvin=[kelvins[i] for i in pick],
         reason=f"{reason} change within the shot")
+
+
+def _smooth_time(times: np.ndarray, values: np.ndarray, seconds: float) -> np.ndarray:
+    """A Gaussian average over time (σ = seconds / 2), for unevenly spaced samples."""
+    if seconds <= 0 or len(values) < 3:
+        return np.asarray(values, dtype="float64")
+    sigma = seconds / 2.0
+    w = np.exp(-0.5 * ((times[:, None] - times[None, :]) / sigma) ** 2)
+    return (w @ values) / w.sum(axis=1)
+
+
+def _rate_limit(times: np.ndarray, values: np.ndarray, per_second: float) -> np.ndarray:
+    """No faster change than per_second (forwards, then backwards, so a ramp is centred on the change)."""
+    if per_second <= 0 or len(values) < 2:
+        return values
+    out = np.asarray(values, dtype="float64").copy()
+    for order in (range(1, len(out)), range(len(out) - 2, -1, -1)):
+        for i in order:
+            j = i - 1 if order.start < order.stop else i + 1
+            step = per_second * abs(times[i] - times[j])
+            out[i] = min(max(out[i], out[j] - step), out[j] + step)
+    return out
 
 
 def _dont_crush(contrast: p.Cdl, sim, stops: list[float], settings: dict) -> p.Cdl:

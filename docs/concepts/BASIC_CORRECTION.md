@@ -460,11 +460,16 @@ tested there unless it says *untested*.
   ramp 0 → 0.1 over 24 frames renders exactly the unchanged picture at the first keyframe and, halfway, the same
   picture as `SetCDL` offset 0.05 (mean difference 0.0001), in a freshly added version too; the user's version stays
   untouched. Constant exposure, white balance and saturation keyframes match `SetCDL` exactly (0.00000).
-- **Contrast can't be keyframed exactly:** measured on code values of an ungrouped clip, Resolve's Contrast
-  parameter is far from `out = pivot + c · (in − pivot)` at higher values (c = 1.73: rms 0.10 off a line), and the
-  per-channel Gain parameters (100663325–327) barely act on their own. Offset (100663421–423) is exact. So davigen
-  keyframes nodes 01 and 02 only. A node whose tracks keep only their base entry has no keyframes, and `SetCDL`
-  on it after the grade file is exact.
+- **Contrast, measured on a synthetic ramp (2026-09-29):** the project setting `colorUseContrastSCurve` is on (the
+  default). Then Resolve's Contrast parameter is exactly `pivot + c · (in − pivot)`, channel by channel, for
+  c ≤ 1, and an S-curve above 1 that also couples the channels (up to 0.6 off on a coloured ramp at c = 2). The
+  default pivot is 0.435. Gain, Master Gain and Lift act luminance-preserving (YRGB) and aren't a per-channel
+  multiply either; Offset is exact.
+- So a contrast that changes over time is written in two nodes: node 03 holds the clip's highest contrast × 1.05
+  as a constant CDL (`SetCDL`, exact; a node whose tracks keep only their base entry has no keyframes and takes
+  `SetCDL` exactly after the grade file), node 04 takes the rest back per keyframe with a Contrast ≤ 1 around a
+  pivot, plus the saturation (`dynamic.resolve_nodes`). Checked with a ramp on node 01 and changing contrast,
+  pivot and saturation on node 04: exact at the keyframe (0.00001), 0.0004 between.
 - On the MARSEILLE timeline, frames rendered by Resolve from `DAVIGEN_AUTO` match davigen's simulation (ffmpeg
   decode, input LUT, nodes, output LUT) within 0.3–0.5 % of display for constant clips, pixel by pixel.
 - **Full run, 2026-09-29, MARSEILLE_2026 (57 clips, 35 min):** 3 min 50 s with the samples cached, 2,606 extra
@@ -535,9 +540,10 @@ keyframing exposure by hand on every such clip is exactly the chore davigen shou
 3. **Follow it partly.** Beyond the dead zone `follow` (75 %) of the change is corrected, within the exposure
    limits of §5.1 and only while the highlights have room: the tunnel is lifted, but still reads darker than the
    street. White balance follows the measured light the same way (`wb_follow` 80 %).
-4. **Only nodes 01 and 02 get keyframes.** Their Offset is exact as a keyframe; Resolve's Contrast parameter is
-   not (§12), so nodes 03–06 carry no keyframes and davigen writes 03 and 04 with `SetCDL` afterwards, which is
-   exact (verified: 0.00001 at the keyframe, 0.00006 between). On P1000074 (a drive through a tunnel near
+4. **Keyframes on nodes 01, 02 and 04.** Exposure and white balance are Offset keyframes; contrast over time is a
+   constant node 03 plus a keyframed Contrast ≤ 1 in node 04 (§12), all exact in Resolve. Moments are smoothed
+   over `smooth_seconds` (0.5 s) and never change faster than `max_stops_per_second` (3), like a hand-ridden
+   exposure. On P1000074 (a drive through a tunnel near
    Marseille) the clip's contrast, solved on the bright motorway, crushed the lifted tunnel. So for a keyframed
    clip the contrast is solved on every moment as nodes 01 and 02 leave it; the lift is scaled so that after
    contrast (1 − `follow`) of the move remains; a moment may be lifted up to `dynamic.max_stops_up` (3 stops,

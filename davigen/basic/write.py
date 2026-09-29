@@ -20,6 +20,7 @@ from .. import color, drx
 from ..media_pool import META_GROUP
 from . import correct as c
 from . import pipeline as p
+from . import dynamic
 from .dynamic import Keyframes
 
 AUTO = "DAVIGEN_AUTO"
@@ -157,13 +158,13 @@ def params(label: str, cdl: p.Cdl) -> dict[int, float]:
     raise ValueError(label)
 
 
-KEYFRAMED = (c.EXPOSURE, c.WHITE_BALANCE)          # Offset: exact as keyframes (concept §12)
+KEYFRAMED = (c.EXPOSURE, c.WHITE_BALANCE, c.SATURATION)   # Offset, Contrast ≤ 1, Saturation: exact (concept §12)
 
 
 def _write_keyframes(item, kf: Keyframes, folder: Path, out: Outcome) -> bool:
-    """Replace DAVIGEN_AUTO's grade by davigen's structure with keyframes on nodes 01 and 02, then SetCDL the
-    constant nodes 03 and 04 (exact; Resolve's Contrast parameter is an S-curve). False: fall back to constant
-    values."""
+    """Replace DAVIGEN_AUTO's grade by davigen's structure with keyframes on nodes 01, 02 and 04, then SetCDL the
+    constant node 03 (dynamic.resolve_nodes: Resolve's Contrast is exact only up to 1). False: fall back to
+    constant values."""
     graph = item.GetNodeGraph()
     if labels(graph) != STRUCTURE:
         out.warnings.append("keyframes skipped: the nodes differ from davigen's structure – constant values written")
@@ -172,7 +173,10 @@ def _write_keyframes(item, kf: Keyframes, folder: Path, out: Outcome) -> bool:
     name = "".join(ch if ch.isalnum() else "_" for ch in str(item.GetUniqueId() if hasattr(item, "GetUniqueId")
                                                             else item.GetName()))
     target = folder / f"{name}.drx"
-    nodes = {label: [params(label, cdl) for cdl in kf.nodes[label]] for label in KEYFRAMED}
+    node03, node04 = dynamic.resolve_nodes(kf)
+    nodes = {label: [params(label, cdl) for cdl in kf.nodes[label]] for label in (c.EXPOSURE, c.WHITE_BALANCE)}
+    nodes[c.SATURATION] = [{drx.P_CONTRAST: r["contrast"], drx.P_PIVOT: r["pivot"], drx.P_SATURATION: r["sat"],
+                            drx.P_LUM_MIX: 0.0} for r in node04]
     static = tuple(label for label in STRUCTURE if label not in KEYFRAMED)
     target.write_text(drx.make_keyframe_drx(drx.KEYFRAME_TEMPLATE.read_text(encoding="utf-8"), kf.frames, nodes,
                                             static=static), encoding="utf-8")
@@ -189,15 +193,14 @@ def _write_keyframes(item, kf: Keyframes, folder: Path, out: Outcome) -> bool:
         return False
     indices = node_indices(graph)
     out.written = {label: True for label in KEYFRAMED}
-    for label in (c.CONTRAST, c.SATURATION):
-        try:
-            done = bool(item.SetCDL(kf.nodes[label][0].to_resolve(indices[label])))
-        except Exception as e:  # noqa: BLE001
-            done = False
-            out.warnings.append(f"SetCDL on {label}: {e}")
-        out.written[label] = done
-        if not done:
-            out.warnings.append(f"Resolve refused the values for {label}")
+    try:
+        done = bool(item.SetCDL(node03.to_resolve(indices[c.CONTRAST])))
+    except Exception as e:  # noqa: BLE001
+        done = False
+        out.warnings.append(f"SetCDL on {c.CONTRAST}: {e}")
+    out.written[c.CONTRAST] = done
+    if not done:
+        out.warnings.append(f"Resolve refused the values for {c.CONTRAST}")
     out.keyframes = len(kf.frames)
     return True
 

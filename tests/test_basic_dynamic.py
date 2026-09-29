@@ -110,3 +110,27 @@ def test_covered_frames_are_bridged(out_lut):
     assert meas.per_sample[2]["usable"] is False and meas.samples == 4 and len(meas.per_sample) == 5
     assert abs(meas.exposure_stops) < 0.3                               # the black frame doesn't pull the key
     assert dyn.plan(frames, meas.per_sample, meas, corr, thumbs, out_lut, S) is None
+
+
+def test_resolve_nodes_compose_to_each_contrast():
+    """Node 03 (constant, above the highest contrast) then node 04 (Contrast ≤ 1) give every keyframe's contrast."""
+    rng = np.random.default_rng(2)
+    cons = [p.Cdl(slope=(k,) * 3, offset=(pv * (1 - k),) * 3)
+            for k, pv in zip(rng.uniform(0.9, 1.8, 6), rng.uniform(0.25, 0.5, 6))]
+    kf = dyn.Keyframes(frames=list(range(0, 60, 10)), nodes={c.EXPOSURE: [p.Cdl()] * 6, c.WHITE_BALANCE: [p.Cdl()] * 6,
+                                                            c.CONTRAST: cons, c.SATURATION: [p.Cdl(sat=1.1)] * 6})
+    node03, rows = dyn.resolve_nodes(kf)
+    x = np.linspace(0.0, 1.0, 11)
+    for want, row in zip(cons, rows):
+        assert row["contrast"] <= 1.0
+        got = p.apply_cdl(p.apply_cdl(np.repeat(x[:, None], 3, 1), node03), dyn.node04_cdl({**row, "sat": 1.0}))
+        assert np.allclose(got[:, 0], want.slope[0] * x + want.offset[0], atol=1e-9)
+
+
+def test_rides_are_smooth_and_rate_limited():
+    t = np.arange(0.0, 6.0, 0.1)
+    step = np.where(t < 3.0, 2.0, 0.0)                                   # a two-stop jump at 3 s
+    ride = dyn._rate_limit(t, dyn._smooth_time(t, step, 0.5), 3.0)
+    assert np.all(np.abs(np.diff(ride)) <= 3.0 * 0.1 + 1e-9)             # never faster than 3 stops per second
+    assert ride[0] == pytest.approx(2.0, abs=1e-3) and ride[-1] == pytest.approx(0.0, abs=1e-3)
+    assert 0.8 < ride[30] < 1.2                                          # centred on the change

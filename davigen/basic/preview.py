@@ -22,6 +22,20 @@ def nodes_at(entry: dict, frame: int) -> list[p.Cdl]:
     def cdl(d: dict) -> p.Cdl:
         return p.Cdl(tuple(d["slope"]), tuple(d["offset"]), tuple(d["power"]), d["sat"])
     kf = entry.get("keyframes")
+    if kf and kf.get("frames") and kf.get("resolve"):
+        # as Resolve interpolates: offsets of 01/02, node 03 constant, node 04's contrast, pivot and saturation
+        frames = kf["frames"]
+        out = []
+        for label in ("01_EXPOSURE", "02_WHITE_BALANCE"):
+            rows = kf["nodes"][label]
+            out.append(p.Cdl(offset=tuple(float(np.interp(frame, frames, [r["offset"][i] for r in rows]))
+                                          for i in range(3))))
+        out.append(cdl(kf["resolve"]["03"]))
+        rows = kf["resolve"]["04"]
+        at = {key: float(np.interp(frame, frames, [r[key] for r in rows])) for key in ("contrast", "pivot", "sat")}
+        k = at["contrast"]
+        out.append(p.Cdl(slope=(k,) * 3, offset=(at["pivot"] * (1.0 - k),) * 3, sat=at["sat"]))
+        return out
     if kf and kf.get("frames"):
         frames = kf["frames"]
         out = []
