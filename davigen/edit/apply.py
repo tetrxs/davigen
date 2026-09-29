@@ -6,6 +6,7 @@ clip on a 25 fps timeline plays at 100 % speed, so seconds are the common unit.
 
 from __future__ import annotations
 
+from .. import formats, timelines
 from ..resolve_api import ResolveError, ensure_bin, find_timeline
 from . import selects as sel
 from .music import Music
@@ -109,25 +110,39 @@ def _new_timeline(project, name: str, bin_path: str):
     return tl
 
 
-def selects_timeline(project, name: str, bin_path: str, picks: list[tuple], timeline_fps: float) -> object:
-    """picks: [(mpi, start_s, end_s)] in order. Video and sound, back to back."""
-    tl = _new_timeline(project, name, bin_path)
-    infos = []
-    for mpi, a, b in picks:
-        fps = clip_fps(mpi, timeline_fps)
-        start = int(round(a * fps))
-        infos.append({"mediaPoolItem": mpi, "startFrame": start, "endFrame": max(start + 1, int(round(b * fps)))})
-    if infos and not project.GetMediaPool().AppendToTimeline(infos):
-        raise ResolveError("Resolve didn't put the selects on the timeline")
-    return tl
+def is_empty(tl) -> bool:
+    return all(not (tl.GetItemListInTrack(kind, i) or []) for kind in ("video", "audio")
+               for i in range(1, (tl.GetTrackCount(kind) or 0) + 1))
 
 
-def rough_cut_timeline(project, name: str, bin_path: str, shots: list[Shot], clips: dict, music_mpi,
-                       timeline_fps: float, music_start: float = 0.0) -> tuple[object, list[str]]:
-    """Video of every shot on V1, back to back and frame-exact to the beat grid; the music on A1 from the start
-    of the timeline – from `music_start` seconds into the song when the cut uses only part of it."""
+def edit_timeline(project, cfg, fmt) -> tuple[object, str]:
+    """Where a rough cut goes: the project's edit timeline (TL_02_EDIT_…_v001) while it is empty – the cut starts
+    where it will be edited – else its next version (…_v002), so an edit in progress is never touched."""
+    spec = next(t for t in formats.timelines(cfg, fmt) if t["role"] == "edit")
+    tl = find_timeline(project, spec["name"])
+    if tl is not None and is_empty(tl):
+        project.SetCurrentTimeline(tl)
+        return tl, spec["name"]
+    name = next_name(project, spec["name"].rsplit("_v", 1)[0])
+    tl = _new_timeline(project, name, spec["bin"])
+    timelines.name_tracks(tl, cfg)
+    return tl, name
+
+
+def _track(tl, kind: str, label: str, fallback: int = 1) -> int:
+    for i in range(1, (tl.GetTrackCount(kind) or 0) + 1):
+        if hasattr(tl, "GetTrackName") and (tl.GetTrackName(kind, i) or "").upper() == label:
+            return i
+    return fallback
+
+
+def rough_cut(project, tl, shots: list[Shot], clips: dict, music_mpi, timeline_fps: float,
+              music_start: float = 0.0) -> list[str]:
+    """Into an empty timeline: every shot on V1 (MAIN), back to back and frame-exact to the beat grid; the music on
+    the MUSIC track (A1 if there is none) from the start – from `music_start` seconds into the song when the cut
+    uses only part of it."""
     warnings = []
-    tl = _new_timeline(project, name, bin_path)
+    project.SetCurrentTimeline(tl)
     mp = project.GetMediaPool()
     infos = []
     for shot in shots:
@@ -146,12 +161,13 @@ def rough_cut_timeline(project, name: str, bin_path: str, shots: list[Shot], cli
         end = first + int(round(shots[-1].record_end * music_fps))
         start_frame = int(tl.GetStartFrame()) if hasattr(tl, "GetStartFrame") else 0
         placed = mp.AppendToTimeline([{"mediaPoolItem": music_mpi, "startFrame": first, "endFrame": max(first + 1, end),
-                                       "mediaType": 2, "trackIndex": 1, "recordFrame": start_frame}])
+                                       "mediaType": 2, "trackIndex": _track(tl, "audio", "MUSIC"),
+                                       "recordFrame": start_frame}])
         if not placed:
-            warnings.append("Resolve didn't place the music – drag it from 04_AUDIO/MUSIC onto A1")
+            warnings.append("Resolve didn't place the music – drag it from 04_AUDIO/MUSIC onto the MUSIC track")
         else:
             item = placed[0]
             if hasattr(item, "GetStart") and item.GetStart() != start_frame:
                 warnings.append("The music landed after the pictures (this Resolve ignores recordFrame) – "
-                                "move it to the start of A1")
-    return tl, warnings
+                                "move it to the start of the MUSIC track")
+    return warnings

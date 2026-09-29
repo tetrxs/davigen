@@ -214,7 +214,7 @@ class App:
         """Show one of davigen's timelines on Resolve's Edit page."""
         from .resolve_api import find_timeline  # noqa: PLC0415
         name = body.get("name", "")
-        if not re.match(r"^TL_\w+_AUTO_\w+$", name):
+        if not re.match(r"^TL_\w+$", name):
             return {"ok": False, "error": "Not a davigen timeline"}
         proj = self.resolve.GetProjectManager().GetCurrentProject()
         tl = find_timeline(proj, name)

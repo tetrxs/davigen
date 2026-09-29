@@ -126,7 +126,7 @@ export function EditPage() {
       <PageHeader
         eyebrow="Edit assist"
         title="From footage to a first cut"
-        description="davigen watches every clip once and marks what it sees. With a song it builds a rough cut on the beat – in new timelines, your own ones stay as they are."
+        description="davigen watches every clip once and marks what it sees – the markers show on the clips in every timeline. With a song it builds a rough cut on the beat in your edit timeline (a new version of it once you have started cutting there)."
       />
 
       <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
@@ -236,10 +236,11 @@ export function EditPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ListVideoIcon className="size-4 text-brand-2" />
-                Selects only
+                Mark the footage
               </CardTitle>
               <CardDescription>
-                Markers on every clip and a selects timeline with the good stretches in order – no song needed.
+                Markers on every clip – you see them in the Assembly and every other timeline – and keywords for the
+                Media Pool search. No song needed, no new timeline.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-1.5 text-sm">
@@ -254,10 +255,10 @@ export function EditPage() {
               <Button
                 variant="outline"
                 disabled={running}
-                onClick={() => startFlow("/api/edit", "Edit assist · selects", "edit", { transcribe })}
+                onClick={() => startFlow("/api/edit", "Edit assist · markers", "edit", { transcribe })}
               >
                 <ListVideoIcon data-icon="inline-start" />
-                Make selects
+                Mark the footage
               </Button>
             </CardFooter>
           </Card>
@@ -405,7 +406,6 @@ function Results({ last, wave }: { last: EditLast; wave?: number[] }) {
           <p className="text-sm text-muted-foreground">{fmtDate(last.date)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {last.selects_timeline && <OpenTimeline name={last.selects_timeline} label="Selects" />}
           {last.rough_cut && <OpenTimeline name={last.rough_cut} label="Rough cut" />}
         </div>
       </div>

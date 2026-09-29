@@ -255,14 +255,11 @@ export function RunPage() {
               <video src={video.preview(run.started)} controls playsInline className="max-h-[70vh] w-full bg-black" />
             </Card>
           )}
-          {run.kind === "edit" && (result.rough_cut || result.selects_timeline) && (
+          {run.kind === "edit" && result.rough_cut && (
             <Alert>
               <ClapperboardIcon />
-              <AlertTitle>In Resolve now</AlertTitle>
-              <AlertDescription>
-                {[result.selects_timeline, result.rough_cut].filter(Boolean).join(" · ")} – the details are on the Edit
-                assist page.
-              </AlertDescription>
+              <AlertTitle>The rough cut is in {result.rough_cut}</AlertTitle>
+              <AlertDescription>Cut on from there. The details are on the Edit assist page.</AlertDescription>
             </Alert>
           )}
         </div>

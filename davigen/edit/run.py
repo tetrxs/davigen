@@ -17,11 +17,10 @@ STEPS = [
     ("watch", "Watch every clip"),
     ("selects", "Selects"),
     ("transcribe", "Transcribe speech (Whisper)"),
-    ("markers", "Markers in the Media Pool"),
-    ("timeline", "Selects timeline"),
+    ("markers", "Markers on the clips"),
     ("music", "Music: beats, bars, sections"),
     ("roughcut", "Rough cut to music"),
-    ("grade", "Basic correction on the new timelines"),
+    ("grade", "Basic correction on the rough cut"),
     ("preview", "Preview video"),
     ("save", "Save"),
 ]
@@ -110,25 +109,19 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     rep.finish("markers", f"{marked} markers on {len(plans)} clips · flags: {flags.count('Green')} green, "
                f"{flags.count('Red')} red · keywords 'davigen good' / 'davigen speech' for the Media Pool search")
 
-    # --------------------------------------------------------------------------------------- timeline
-    rep.start("timeline")
+    # the best stretches, for the record (the Edit assist page lists them; in Resolve they are the green markers,
+    # visible on the clips in every timeline, and the 'davigen good' keyword)
     fmt = project_format(cfg, proj, base)
-    stem = f"TL_00_SELECTS_AUTO_{fmt.aspect_token}_{fmt.fps_token}"
     st = s["selects_timeline"]
-    picks, chosen = [], []
+    chosen = []
     for plan in sorted(plans, key=lambda p: (p.created, p.order)):
         for seg in (x for x in plan.segments if x.kind == sel.GOOD and x.rating >= st["min_rating"]):
             a, b = sel.calmest_window(plan.watch, seg, min(seg.length, st["max_seconds"]))
-            picks.append((clips[int(plan.id)], a, b))
             chosen.append({"clip": plan.id, "name": plan.name, "start": round(a, 2), "end": round(b, 2),
                            "rating": round(seg.rating, 3)})
-    name = apply.next_name(proj, stem)
-    selects_tl = apply.selects_timeline(proj, name, "03_TIMELINES/01_ASSEMBLY", picks, tl_fps) if picks else None
-    rep.finish("timeline", f"{name}: {len(picks)} stretches, {sum(b - a for _, a, b in picks) / 60:.1f} min"
-               if picks else "no good stretches", state="done" if picks else "skipped")
 
     # ----------------------------------------------------------------------------------- music + cut
-    result = {"selects_timeline": name if picks else "", "selects": chosen, "rough_cut": "", "music": None}
+    result = {"selects": chosen, "rough_cut": "", "music": None}
     if music_path:
         rep.start("music", Path(music_path).name)
         samples = decode.audio(music_path, music_mod.RATE)
@@ -148,18 +141,15 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
                    + (f" · using {a:.0f}–{b:.0f} s" if part is not track else ""))
         rep.start("roughcut")
         shots = roughcut.plan(plans, part, roughcut.with_pace(s["rough_cut"], pace))
-        cut_name = apply.next_name(proj, f"TL_02_EDIT_AUTO_{fmt.aspect_token}_{fmt.fps_token}")
-        tl, warns = apply.rough_cut_timeline(proj, cut_name, "03_TIMELINES/02_EDIT", shots,
-                                             {p.id: clips[int(p.id)] for p in plans}, music_mpi, tl_fps, a)
-        rep.warn(warns)
+        tl, cut_name = apply.edit_timeline(proj, cfg, fmt)
+        rep.warn(apply.rough_cut(proj, tl, shots, {p.id: clips[int(p.id)] for p in plans}, music_mpi, tl_fps, a))
         length = shots[-1].record_end if shots else 0
         rep.finish("roughcut", f"{cut_name}: {len(shots)} shots, {length:.0f} s"
                    + (f" ({pace} pace)" if pace != "auto" else ""))
         result.update(rough_cut=cut_name, music=track.to_dict(), music_file=music_path, music_window=[a, b],
                       pace=pace, shots=[x.to_dict() for x in shots])
-        if tl is not None:
-            proj.SetCurrentTimeline(tl)
-        _grade(proj, base, [selects_tl, tl], rep)
+        proj.SetCurrentTimeline(tl)
+        _grade(proj, base, [tl], rep)
         rep.start("preview")
         try:
             clips_info = [{"id": p.id, "path": clips[int(p.id)].GetClipProperty("File Path")} for p in plans]
@@ -173,10 +163,8 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     else:
         rep.finish("music", "no music chosen", state="skipped")
         rep.finish("roughcut", "choose a music file for a rough cut", state="skipped")
-        _grade(proj, base, [selects_tl], rep)
+        rep.finish("grade", "only with a rough cut", state="skipped")
         rep.finish("preview", "only with a rough cut", state="skipped")
-        if selects_tl is not None:
-            proj.SetCurrentTimeline(selects_tl)
 
     # ------------------------------------------------------------------------------------------- save
     rep.start("save")

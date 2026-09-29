@@ -235,15 +235,31 @@ class Timeline:
         self.settings = {"timelineResolutionWidth": "3240", "timelineResolutionHeight": "2160",
                          "timelineFrameRate": str(fps)}
         self.timecode = ""
+        self.track_names = {"video": [], "audio": []}
 
     def GetName(self):
         return self.name
 
     def GetTrackCount(self, kind):
-        return 1 if kind == "video" else 0
+        return max(1, len(self.track_names["video"])) if kind == "video" else len(self.track_names.get(kind, []))
 
     def GetItemListInTrack(self, kind, idx):
-        return self.items
+        return [i for i in self.items if getattr(i, "kind", "video") == kind and getattr(i, "track", 1) == idx]
+
+    def AddTrack(self, kind, sub=""):
+        names = self.track_names[kind]
+        if kind == "video" and not names:
+            names.append("")                                    # a timeline starts with V1
+        names.append("")
+        return True
+
+    def SetTrackName(self, kind, idx, name):
+        self.track_names[kind][idx - 1] = name
+        return True
+
+    def GetTrackName(self, kind, idx):
+        names = self.track_names.get(kind, [])
+        return names[idx - 1] if idx <= len(names) else ""
 
     def GetSetting(self, key):
         return self.settings.get(key)
@@ -267,6 +283,7 @@ class Timeline:
         start = info.get("recordFrame", same[-1].start + same[-1].duration if same else 90000)
         ti = TimelineItem(info["mediaPoolItem"], start, length, info["startFrame"])
         ti.kind = kind
+        ti.track = info.get("trackIndex", 1)
         self.items.append(ti)
         return ti
 

@@ -30,21 +30,19 @@ def test_selects_only(project):
     resolve, proj, clips, base = project
     rep = Reporter(run.STEPS)
     record = run.edit_assist(resolve, Config(), rep, base=base)
-    assert rep.steps["music"]["state"] == "skipped" and rep.steps["timeline"]["state"] == "done"
+    assert rep.steps["music"]["state"] == "skipped" and rep.steps["markers"]["state"] == "done"
     marks = clips[0].markers
     colours = {m["color"] for m in marks.values()}
     assert {"Green", "Red", "Blue"} <= colours
     assert all(m["customData"] == apply.MARKER_DATA for m in marks.values())
-    tl = next(t for t in proj.timelines if t.name.startswith("TL_00_SELECTS_AUTO"))
-    assert tl.name == "TL_00_SELECTS_AUTO_3X2_25_v001" and len(tl.items) >= 6
-    assert record["selects_timeline"] == tl.name
+    assert [t.name for t in proj.timelines] == ["TL_01_ASSEMBLY_3X2_25_v001"]      # no timeline of its own
+    assert record["selects"] and all(x["end"] > x["start"] for x in record["selects"])
     assert clips[0].flags == {"Green"} and "davigen good" in clips[0].metadata["Keywords"]
     assert "davigen speech" in clips[0].metadata["Keywords"]
     assert (base / "00_ADMIN/PROJECT_INFO/edit_assist.json").exists()
-    # again: a new version, markers replaced not doubled
+    # again: markers replaced, not doubled, and still no extra timeline
     run.edit_assist(resolve, Config(), Reporter(run.STEPS), base=base)
-    assert any(t.name.endswith("_v002") for t in proj.timelines)
-    assert len(clips[0].markers) == len(marks)
+    assert len(clips[0].markers) == len(marks) and len(proj.timelines) == 1
 
 
 def test_user_markers_survive(project):
@@ -63,9 +61,11 @@ def test_rough_cut_to_music(project):
     rep = Reporter(run.STEPS)
     record = run.edit_assist(resolve, Config(), rep, music_path="/music/song.wav", base=base)
     assert rep.steps["roughcut"]["state"] == "done", rep.steps
-    cut = next(t for t in proj.timelines if t.name.startswith("TL_02_EDIT_AUTO"))
+    cut = next(t for t in proj.timelines if t.name == "TL_02_EDIT_3X2_25_v001")      # the edit timeline
+    assert record["rough_cut"] == cut.name
     video = [i for i in cut.items if i.kind == "video"]
     audio = [i for i in cut.items if i.kind == "audio"]
+    assert audio and audio[0].track == cut.track_names["audio"].index("MUSIC") + 1    # on the MUSIC track
     assert len(video) == len(record["shots"]) >= 4
     assert audio and audio[0].start == 90000                            # music from the start of A1
     for a, b in zip(video, video[1:]):
@@ -118,3 +118,14 @@ def test_whisper_cleaning_and_srt():
     text = transcribe.srt(kept)
     assert "1\n00:00:00,000 --> 00:00:02,000\nHallo zusammen.\n" in text
     assert "01:01:01,500 --> 01:01:03,250" in text
+
+
+def test_rough_cut_goes_into_the_empty_edit_timeline_and_never_over_an_edit(project):
+    resolve, proj, clips, base = project
+    edit = fr.Timeline("TL_02_EDIT_3X2_25_v001")
+    proj.timelines.append(edit)
+    run.edit_assist(resolve, Config(), Reporter(run.STEPS), music_path="/music/song.wav", base=base)
+    assert edit.items and [t.name for t in proj.timelines].count("TL_02_EDIT_3X2_25_v001") == 1
+    before = list(edit.items)
+    record = run.edit_assist(resolve, Config(), Reporter(run.STEPS), music_path="/music/song.wav", base=base)
+    assert record["rough_cut"] == "TL_02_EDIT_3X2_25_v002" and edit.items == before     # the edit stays

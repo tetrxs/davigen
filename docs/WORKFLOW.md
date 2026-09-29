@@ -77,11 +77,14 @@ any timeline. Each camera also gets its own **clip color**.
 
 | Timeline | Resolution | Purpose |
 |---|---|---|
-| `TL_01_ASSEMBLY_3X2_25_v001` | master | All footage in shooting order, filled by davigen. Watch it, mark and pick. Don't edit here. |
-| `TL_02_EDIT_3X2_25_v001` | master | The actual cut: story, timing, music. |
+| `TL_01_ASSEMBLY_3X2_25_v001` | master | All footage in shooting order, filled by davigen (new footage goes to its end). Basic correction measures here; Edit assist's markers show on its clips. Watch it, mark and pick. Don't edit here. |
+| `TL_02_EDIT_3X2_25_v001` | master | **Where you cut**: story, timing, music. Edit assist's rough cut lands here while it's empty; once you've started cutting, a new rough cut goes into `…_v002`, so your edit is never touched. |
 | `TL_03_MASTER_3X2_25_v001` | master | The picture-locked, graded, mixed film. It is the source of every delivery. |
 | `TL_04_DELIVERY_16X9_25_v001` | 3840 × 2160 | The master reframed for 16:9. |
 | `TL_05_DELIVERY_9X16_25_v001` | 1080 × 1920 | The master reframed for 9:16. |
+
+Basic correction's `DAVIGEN_AUTO` reaches every timeline: Resolve keeps a grade per timeline clip, so davigen
+writes it onto the same clips wherever they are used (*On every timeline*, and automatically for the rough cut).
 
 These are the tracks on every timeline:
 
@@ -117,11 +120,11 @@ and down for 16:9 and plenty of room left and right for 9:16.
    | red `davigen: blurred` / `shaking` / `dark / covered` / `whip pan` | skip this |
    | blue `davigen: speech` | someone talks: an A-roll candidate; with *Transcribe speech* the marker's note holds what was said |
 
-   It also builds `TL_00_SELECTS_AUTO_…` in `03_TIMELINES/01_ASSEMBLY`: the good stretches (their calmest six
-   seconds) in shooting order, a fast way to see the whole trip. **Rough cut to music…** asks for a song, marks its
-   bars and sections, and builds `TL_02_EDIT_AUTO_…`: the best stretches in shooting order, cut on the bar, two
-   bars per shot in calm parts and one in energetic ones, the song on A1. Every run makes a new version and
-   replaces only davigen's own markers. Needs ffmpeg (`brew install ffmpeg`).
+   The markers belong to the clips, so they show in the Assembly and every other timeline; no extra timeline is
+   made. **Rough cut to music** (song, length and pace chosen on the Edit assist page) marks the song's bars and
+   sections and cuts the best stretches in shooting order on the bar into `TL_02_EDIT` – while it is empty, else
+   into its next version – with the song on the MUSIC track, graded like the Assembly, plus a preview video to
+   watch in davigen. A new run replaces only davigen's own markers. Needs ffmpeg (`brew install ffmpeg`).
 
    **Transcribe speech** (on by default, Apple Silicon): Whisper (large v3 turbo) writes what is said, in any
    language, into the blue markers, an `.srt` per clip in `03_WORK/TRANSCRIPTS` (import it as subtitles) and
@@ -129,7 +132,7 @@ and down for 16:9 and plenty of room left and right for 9:16.
    words (wind, traffic) the speech marker is dropped. The first run installs `mlx-whisper` into davigen's Python and
    downloads the model (~1.6 GB); after that a minute of speech takes a few seconds.
 3. **Pick your shots on the assembly timeline:**
-   1. Open `TL_01_ASSEMBLY` (or the selects timeline) and play through it.
+   1. Open `TL_01_ASSEMBLY` and play through it; the green markers point at the good stretches.
    2. Mark good moments with **I**/**O** and **F9** (insert) into your selects, or flag and color them.
 
    Put the picks into `02_SELECTS`.

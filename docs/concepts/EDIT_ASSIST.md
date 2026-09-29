@@ -21,9 +21,9 @@ pocketing the camera, and the good moments are short.
 
 | Feature | Result in Resolve |
 |---|---|
-| **Selects** | Every clip gets markers: green for good stretches, red for unusable ones (camera in the pocket, lens covered, blur, heavy shake), blue where someone speaks. A selects timeline `TL_00_SELECTS_AUTO` holds the good stretches in shooting order. |
+| **Selects** | Every clip gets markers: green for good stretches, red for unusable ones (camera in the pocket, lens covered, blur, heavy shake), blue where someone speaks. The markers belong to the clips, so they show in every timeline (no selects timeline since 2026-09-29). |
 | **Beat markers** | A music clip gets markers on its beats, a stronger colour on every bar, and one per section change (verse, drop, calm part). |
-| **Rough cut** | `TL_02_EDIT_AUTO_v001`: the music on A1, and on V1 the best stretches of the shoot, in shooting order, each cut on a beat, as long as the music. |
+| **Rough cut** | Into `TL_02_EDIT_…_v001` while it is empty, else its next version: the music on the MUSIC track, and on V1 the best stretches of the shoot, in shooting order, each cut on a beat, as long as the music. |
 
 Nothing is deleted or trimmed in the source clips. Markers carry the custom data `davigen-edit`, so a new run
 replaces its own markers and never touches the user's.
