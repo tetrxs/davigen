@@ -194,7 +194,7 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
 
     # ------------------------------------------------------------------------------------------- save
     rep.start("save")
-    record = _record(proj, timeline, items, s, dry_run, recompute)
+    record = keep_written(_record(proj, timeline, items, s, dry_run, recompute), old)
     path = write.save_record(base, timeline.GetName(), record)
     if not dry_run:
         resolve.GetProjectManager().SaveProject()
@@ -371,6 +371,26 @@ def _record(proj, timeline, items: list[Item], s: dict, dry_run: bool, recompute
             "date": datetime.now().isoformat(timespec="seconds"), "dry_run": dry_run, "recompute": recompute,
             "look": s.get("look_applied", {}),
             "settings": s, "items": entries}
+
+
+def keep_written(record: dict, old: dict) -> dict:
+    """A clip that kept its DAVIGEN_AUTO (no rebuild) keeps its entry from the run that wrote it: the record says
+    what is in Resolve, so 'on every timeline' and the report use the grade that is really there, not a new
+    computation that was never written (e.g. after the look changed)."""
+    before = {e["id"]: e for e in old.get("items", []) if (e.get("outcome") or {}).get("written")}
+    kept_prefix = f"{write.AUTO} exists"
+    for n, e in enumerate(record["items"]):
+        prev = before.get(e["id"])
+        outcome = e.get("outcome") or {}
+        if prev is None or not str(outcome.get("skipped", "")).startswith(kept_prefix):
+            continue
+        record["items"][n] = {**prev, "timeline_start": e["timeline_start"],
+                              "outcome": {**prev["outcome"], "marker": outcome.get("marker", ""), "kept": True,
+                                          "written_on": prev["outcome"].get("written_on") or old.get("date", "")}}
+    written = [e for e in record["items"] if (e.get("outcome") or {}).get("written")]
+    if written and all(e["outcome"].get("kept") for e in written) and old.get("look"):
+        record["look"] = old["look"]             # nothing new written: the clips still have the old look
+    return record
 
 
 def rows(record: dict) -> list[dict]:

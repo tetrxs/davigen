@@ -5,7 +5,7 @@ import { CompareSlider } from "@/components/compare-slider"
 import { Page, PageHeader } from "@/components/page-header"
 import { FadeImage } from "@/components/poster"
 import { Stepper } from "@/components/stepper"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -235,6 +235,24 @@ function LookStep({
   )
 }
 
+function OnlySpread() {
+  const { startFlow } = useApp()
+  return (
+    <Alert>
+      <InfoIcon />
+      <AlertTitle>Every clip here is corrected already</AlertTitle>
+      <AlertDescription>
+        To give other timelines (rough cut, selects, your edits) the same grade, nothing has to be measured again.
+      </AlertDescription>
+      <AlertAction>
+        <Button size="xs" onClick={() => startFlow("/api/basic/carry", "Basic correction on every timeline", "maintenance", {})}>
+          On every timeline
+        </Button>
+      </AlertAction>
+    </Alert>
+  )
+}
+
 function StartStep({
   data,
   look,
@@ -293,6 +311,7 @@ function StartStep({
                     : "No new clips – tick Rebuild to correct all again."}
           </p>
           {st.last_run && <p className="text-xs text-muted-foreground">Last run {fmtDate(st.last_run)}</p>}
+          {st.clips > 0 && st.corrected >= st.clips && !rebuild && <OnlySpread />}
           {changed && (
             <Alert>
               <InfoIcon />

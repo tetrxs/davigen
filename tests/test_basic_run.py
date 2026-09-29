@@ -174,3 +174,14 @@ def test_other_timelines_get_the_same_grade(luts, tmp_path):
     # the assembly itself isn't touched, and a second pass keeps what is there
     again = carry.carry_over(proj, tmp_path, proj.timelines)
     assert again["written"] == 0 and again["kept"] == 1
+
+
+def test_a_second_run_without_rebuild_keeps_what_is_written(luts, tmp_path):
+    from davigen.basic import carry
+    resolve, proj, item = tunnel(luts)
+    first = run.basic_correction(resolve, Config(), Reporter(run.STEPS), base=tmp_path)
+    second = run.basic_correction(resolve, Config(), Reporter(run.STEPS), base=tmp_path)    # AUTO exists: kept
+    e1, e2 = first["items"][0], second["items"][0]
+    assert e2["outcome"]["kept"] and e2["outcome"]["written"] == e1["outcome"]["written"]
+    assert e2["correction"] == e1["correction"] and e2["keyframes"] == e1["keyframes"]
+    assert carry.graded_clips(tmp_path)[0]           # still something to bring to other timelines
