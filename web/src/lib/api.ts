@@ -25,6 +25,10 @@ export const query = (params: Record<string, string | number | undefined>) =>
   ).toString()
 
 // Pictures can't send the token header, so it goes into the query string.
+export const video = {
+  preview: (v: number | string) => `/edit/preview.mp4?${query({ v, t: TOKEN })}`,
+}
+
 export const img = {
   poster: (folder: string, i = 0, w = 640) => `/project/poster.png?${query({ folder, i, w, t: TOKEN })}`,
   thumb: (id: string) => `/basic/thumb.png?${query({ id, t: TOKEN })}`,
@@ -192,6 +196,7 @@ export type Progress = {
     selects_timeline?: string
     rough_cut?: string
     removed?: number
+    preview?: string
   }
   live: Live[]
 }

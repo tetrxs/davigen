@@ -10,7 +10,7 @@ from pathlib import Path
 from .. import media_pool
 from ..config import Config
 from ..resolve_api import ResolveError, ensure_bin
-from . import apply, decode, music as music_mod, roughcut, selects as sel, settings as settings_mod, \
+from . import apply, decode, music as music_mod, preview, roughcut, selects as sel, settings as settings_mod, \
     transcribe, watch
 
 STEPS = [
@@ -21,6 +21,7 @@ STEPS = [
     ("timeline", "Selects timeline"),
     ("music", "Music: beats, bars, sections"),
     ("roughcut", "Rough cut to music"),
+    ("preview", "Preview video"),
     ("save", "Save"),
 ]
 WORKERS = 2                     # ffmpeg processes at a time (hardware decoding is shared)
@@ -157,9 +158,20 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
                       pace=pace, shots=[x.to_dict() for x in shots])
         if tl is not None:
             proj.SetCurrentTimeline(tl)
+        rep.start("preview")
+        try:
+            clips_info = [{"id": p.id, "path": clips[int(p.id)].GetClipProperty("File Path")} for p in plans]
+            target = preview_path(base, cut_name)
+            preview.render(base, {**result, "clips": clips_info}, target,
+                           progress=lambda i, n, name: rep.detail("preview", f"{i}/{n} · {name}"))
+            result["preview"] = str(target)
+            rep.finish("preview", str(target.relative_to(base)))
+        except Exception as e:  # noqa: BLE001 - the timeline is there; the preview is a bonus
+            rep.finish("preview", f"not made: {e}", state="skipped")
     else:
         rep.finish("music", "no music chosen", state="skipped")
         rep.finish("roughcut", "choose a music file for a rough cut", state="skipped")
+        rep.finish("preview", "only with a rough cut", state="skipped")
         if selects_tl is not None:
             proj.SetCurrentTimeline(selects_tl)
 
@@ -239,6 +251,27 @@ def _clock(t: float) -> str:
 def media_pool_folder_clips(mp, path: str) -> list:
     folder = ensure_bin(mp, path)
     return folder.GetClipList() or []
+
+
+def preview_path(base: Path, cut_name: str) -> Path:
+    return base / "03_WORK" / "PREVIEWS" / f"{cut_name}.mp4"
+
+
+PREVIEW_STEPS = [("preview", "Preview video of the rough cut")]
+
+
+def preview_flow(resolve, cfg: Config, options: dict, rep) -> None:
+    """Render (again) the preview of the last rough cut – no Resolve needed."""
+    base = Path(options["base"])
+    target_file = base / "00_ADMIN" / "PROJECT_INFO" / "edit_assist.json"
+    record = json.loads(target_file.read_text(encoding="utf-8"))
+    rep.start("preview")
+    out = preview.render(base, record, preview_path(base, record.get("rough_cut") or "rough_cut"),
+                         progress=lambda i, n, name: rep.detail("preview", f"{i}/{n} · {name}"))
+    record["preview"] = str(out)
+    target_file.write_text(json.dumps(record, indent=1, default=str), encoding="utf-8")
+    rep.finish("preview", str(out.relative_to(base)))
+    rep.result = {"preview": str(out)}
 
 
 def flow(resolve, cfg: Config, options: dict, rep) -> None:

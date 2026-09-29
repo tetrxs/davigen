@@ -28,7 +28,7 @@ from .resolve_api import capabilities, find_project, version
 UI_DIR = Path(__file__).resolve().parent / "ui"
 # Resolve's scripting API isn't thread-safe: requests that talk to Resolve run one at a time.
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
-RESOLVE_ROUTES = {"/api/edit/last", "/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
+RESOLVE_ROUTES = {"/api/edit/last", "/api/edit/preview", "/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
                   "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn",
                   "/api/basic/clip", "/api/basic/look"}
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
@@ -205,6 +205,20 @@ class App:
                                                    "pace": body.get("pace") if body.get("pace") in
                                                    ("calm", "auto", "fast") else "auto"})
 
+    def start_edit_preview(self, body: dict) -> dict:
+        from .edit import run as edit  # noqa: PLC0415
+        base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
+        return self._start(edit.PREVIEW_STEPS, edit.preview_flow, {"base": str(base)})
+
+    def edit_preview_file(self) -> Path:
+        with self.resolve_lock:
+            base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
+        rec = json.loads((base / "00_ADMIN" / "PROJECT_INFO" / "edit_assist.json").read_text(encoding="utf-8"))
+        target = Path(rec.get("preview") or "")
+        if not target.is_file() or base not in target.parents:
+            raise FileNotFoundError("no preview")
+        return target
+
     # ------------------------------------------------------------------ edit assist: music and results
     def pick_music(self, body: dict) -> dict:
         res = subprocess.run(["osascript", "-e", 'POSIX path of (choose file with prompt "Music for the rough cut" '
@@ -248,7 +262,9 @@ class App:
         rec = json.loads(target.read_text(encoding="utf-8"))
         self._edit_paths = {c.get("path") for c in rec.get("clips", []) if c.get("path")}
         music = rec.get("music") or {}
+        preview = Path(rec.get("preview") or "")
         return {"ok": True, "date": rec.get("date", ""), "selects_timeline": rec.get("selects_timeline", ""),
+                "preview": int(preview.stat().st_mtime) if preview.is_file() else 0,
                 "rough_cut": rec.get("rough_cut", ""), "music_file": rec.get("music_file", ""),
                 "music": {k: music.get(k) for k in ("duration", "tempo", "sections")} if music else None,
                 "music_window": rec.get("music_window"), "pace": rec.get("pace", ""),
@@ -638,6 +654,7 @@ def make_handler(app: App):
         "/api/cameras": app.add_camera,
         "/api/update/check": lambda b: app.updater.check(),
         "/api/pick-music": app.pick_music,
+        "/api/edit/preview": app.start_edit_preview,
         "/api/update/run": app.update_run,
         "/api/heartbeat": lambda b: {"ok": True},
         "/api/quit": lambda b: (app.stop.set(), {"ok": True})[1],
@@ -658,6 +675,35 @@ def make_handler(app: App):
             self.end_headers()
             with contextlib.suppress(BrokenPipeError, ConnectionResetError):   # the page moved on
                 self.wfile.write(body)
+
+        def _send_file(self, path: Path, ctype: str):
+            """A file with byte ranges, so a <video> can seek."""
+            size = path.stat().st_size
+            match = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "")
+            start, end = 0, size - 1
+            if match and (match.group(1) or match.group(2)):
+                if match.group(1):
+                    start = int(match.group(1))
+                    end = int(match.group(2)) if match.group(2) else size - 1
+                else:
+                    start = max(0, size - int(match.group(2)))
+                end = min(end, size - 1)
+            self.send_response(206 if match else 200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(end - start + 1))
+            if match:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.end_headers()
+            with path.open("rb") as fh, contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                fh.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = fh.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
 
         def _json(self, data, code: int = 200):
             self._send(code, json.dumps(data, ensure_ascii=False, default=str).encode())
@@ -710,6 +756,14 @@ def make_handler(app: App):
                         "/edit/frame.png": app.edit_frame}[url.path]
                 try:
                     return self._send(200, make(query), "image/png")
+                except Exception as e:  # noqa: BLE001
+                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
+            if url.path == "/edit/preview.mp4":
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                try:
+                    return self._send_file(app.edit_preview_file(), "video/mp4")
                 except Exception as e:  # noqa: BLE001
                     return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
             if url.path.startswith("/catalog/thumbs/"):

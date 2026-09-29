@@ -7,6 +7,7 @@ import {
   GaugeIcon,
   ListVideoIcon,
   MusicIcon,
+  PlayIcon,
   SearchIcon,
   TimerIcon,
 } from "lucide-react"
@@ -24,7 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { api, fmtDate, query, TOKEN } from "@/lib/api"
+import { api, fmtDate, query, TOKEN, video } from "@/lib/api"
 import { notify, useApp } from "@/lib/app-state"
 import { cn } from "@/lib/utils"
 
@@ -47,6 +48,7 @@ type Shot = { clip_id: string; clip_name: string; source_start: number; source_e
 type EditLast = {
   ok: boolean
   date: string
+  preview: number
   selects_timeline: string
   rough_cut: string
   music_file: string
@@ -422,6 +424,7 @@ function Results({ last, wave }: { last: EditLast; wave?: number[] }) {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
+            <PreviewPlayer last={last} />
             <SongView song={{ ...last.music, wave }} window={last.music_window} shots={last.shots} />
             <Storyboard shots={last.shots} pathOf={pathOf} />
           </CardContent>
@@ -433,6 +436,41 @@ function Results({ last, wave }: { last: EditLast; wave?: number[] }) {
         <SpeechCard clips={last.clips} />
       </div>
     </section>
+  )
+}
+
+function PreviewPlayer({ last }: { last: EditLast }) {
+  const { startFlow, running } = useApp()
+  if (last.preview)
+    return (
+      <div className="overflow-hidden rounded-xl bg-black ring-1 ring-foreground/10">
+        <video
+          key={last.preview}
+          src={video.preview(last.preview)}
+          controls
+          playsInline
+          preload="metadata"
+          className="mx-auto max-h-[60vh] w-full"
+        />
+      </div>
+    )
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed p-4">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm font-medium">Watch it before you open Resolve</span>
+        <span className="text-xs text-muted-foreground">
+          A preview video: every shot graded like DAVIGEN_AUTO, cut on the beat, with the song.
+        </span>
+      </div>
+      <Button
+        variant="outline"
+        disabled={running}
+        onClick={() => startFlow("/api/edit/preview", "Edit assist · preview video", "preview", {})}
+      >
+        <PlayIcon data-icon="inline-start" />
+        Render preview
+      </Button>
+    </div>
   )
 }
 

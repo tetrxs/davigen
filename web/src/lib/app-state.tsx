@@ -25,7 +25,7 @@ function readRoute(): Route {
 
 // ------------------------------------------------------------------ flows (a job on the server, polled)
 
-export type FlowKind = "basic" | "evaluate" | "edit" | "create" | "add" | "reset" | "maintenance"
+export type FlowKind = "basic" | "evaluate" | "edit" | "preview" | "create" | "add" | "reset" | "maintenance"
 
 export type Run = {
   title: string

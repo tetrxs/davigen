@@ -2,6 +2,7 @@ import * as React from "react"
 import {
   CheckIcon,
   CircleDashedIcon,
+  ClapperboardIcon,
   ClipboardListIcon,
   HandIcon,
   LayoutDashboardIcon,
@@ -21,7 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
-import { img, progressOf, type Live, type Step } from "@/lib/api"
+import { img, progressOf, video, type Live, type Step } from "@/lib/api"
 import { useApp } from "@/lib/app-state"
 import { cn } from "@/lib/utils"
 
@@ -249,6 +250,21 @@ export function RunPage() {
           )}
           {run.kind === "basic" && result.rows && <ReportView rows={result.rows} timeline={result.timeline} />}
           {run.kind === "evaluate" && result.summary && <EvalSummaryCard s={result.summary} />}
+          {(run.kind === "edit" || run.kind === "preview") && result.preview && (
+            <Card className="overflow-hidden p-0">
+              <video src={video.preview(run.started)} controls playsInline className="max-h-[70vh] w-full bg-black" />
+            </Card>
+          )}
+          {run.kind === "edit" && (result.rough_cut || result.selects_timeline) && (
+            <Alert>
+              <ClapperboardIcon />
+              <AlertTitle>In Resolve now</AlertTitle>
+              <AlertDescription>
+                {[result.selects_timeline, result.rough_cut].filter(Boolean).join(" · ")} – the details are on the Edit
+                assist page.
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
       )}
     </Page>
