@@ -99,6 +99,22 @@ class _Sim:
         """Display luma of a neutral DaVinci Intermediate value."""
         return float(p.luminance(p.apply_lut(np.full(3, di_value), self.output_lut)))
 
+    def tone(self, nodes):
+        """A fast stand-in for the display luma under one more contrast node: each unclipped pixel as its
+        luminance in DaVinci Intermediate, and the output LUT's neutral curve. Returns (values, curve x, curve y)."""
+        if getattr(self, "_tone", None) is None or self._tone[0] != repr(nodes):
+            grid = np.linspace(-0.2, 1.3, 1501)
+            curve = p.luminance(p.apply_lut(np.repeat(grid[:, None], 3, 1), self.output_lut))
+            values = []
+            for f, keep in zip(self.frames, self.unclipped):
+                di = p.apply_nodes(f, nodes)
+                lum = np.maximum(p.dwg_luminance(p.to_linear(di)), 1e-6)
+                v = p.to_log(lum)
+                v = v[keep] if keep.sum() > 16 else v.ravel()
+                values.append(v[:: max(1, len(v) // 3000)])       # every n-th pixel: percentiles barely move
+            self._tone = (repr(nodes), values, grid, curve)
+        return self._tone[1:]
+
 
 def _bisect(fn, target: float, lo: float, hi: float, steps: int = 40) -> float:
     """x in [lo, hi] with fn(x) ≈ target, for a monotonic fn."""
@@ -297,59 +313,113 @@ def white_balance_cdl(m: ms.Measurement, exposure: p.Cdl, cct: float, duv: float
 
 # -------------------------------------------------------------------------------------------- 03 contrast
 
+def tone_stats(y: np.ndarray) -> dict:
+    """What the contrast is judged by, on display luma 0–1: the black and white points, and the spread of the
+    tones in between (5th to 95th percentile)."""
+    q = np.percentile(y, [0.5, 5, 50, 95, 99.5])
+    return {"black": float(q[0]), "p5": float(q[1]), "median": float(q[2]), "p95": float(q[3]),
+            "white": float(q[4]), "spread": float(q[3] - q[1]), "crushed": float((y < 0.012).mean())}
+
+
+def _by_range(table, value: float) -> float:
+    xs, ys = zip(*table)
+    return float(np.interp(value, xs, ys))
+
+
+def contrast_targets(before: dict, m: ms.Measurement, settings: dict) -> dict:
+    """Where a shot's tones should end up, as experts put them (MIT-Adobe FiveK, scripts/fivek_targets.py): the
+    black point and the spread of the tones (5th to 95th percentile) depend on the scene's dynamic range. A flat,
+    hazy scene keeps some air in its blacks, a hard one gets deep blacks; neither is stretched to one number.
+    The black band is ± black_tolerance around it, shifted by what was learned from the user's grades."""
+    co = settings["contrast"]
+    shift = settings.get("learned", {}).get("black", 0.0)
+    black = max(0.0, _by_range(co["black_by_range"], m.range_stops) + shift)
+    tol = co["black_tolerance"]
+    return {"black_lo": max(0.0, black - tol), "black_hi": black + tol, "black": black,
+            "spread": _by_range(co["spread_by_range"], m.range_stops) if co.get("spread_by_range") else None}
+
+
+def contrast_node(k: float, grey_shift: float, power: float = 1.0) -> p.Cdl:
+    """Node 03's tone curve in DaVinci Intermediate: contrast k (slope) and a toe (power: above 1 the shadows go
+    down further than the mids), with grey landing grey_shift stops from where it was. SetCDL writes all three
+    exactly (verified, concept §12)."""
+    o = max(p.GREY + grey_shift * p.STOP, 1e-6) ** (1.0 / power) - k * p.GREY
+    return p.Cdl(slope=(k,) * 3, offset=(o,) * 3, power=(power,) * 3)
+
+
 def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values: dict):
-    """Black to the target band, around grey; when the whites won't allow that, the pivot moves up towards them
-    (a two-point levels fit) and the mids come down, at most max_grey_shift stops."""
+    """A tone curve for node 03 – contrast, toe and a small move of the mids – so that the black point sits in
+    its band and the tones between the 5th and 95th percentile span the target, without crushing the shadows or
+    pushing the whites past the targets. The toe does the blacks where a steeper curve would harden the mids (a
+    drone's vendor LUT already brings contrast): experts pull the blacks down, not the whole curve. A search on
+    a fast tone model (Sim.tone), checked on the full simulation."""
     co, conf = settings["contrast"], settings["confidence"]
     lo_c, hi_c = co["range"]
-    shift = settings.get("learned", {}).get("black", 0.0)
-    black_lo, black_hi = (max(0.0, v + shift) for v in co["black"])
+    lo_p, hi_p = co["power_range"]
+    ls, grid, curve = sim.tone(before)
+    y0 = np.concatenate([np.interp(v, grid, curve) for v in ls])
+    start = tone_stats(y0)
+    t = contrast_targets(start, m, settings)
+    white_cap = max(start["white"], co["white_ceiling"])
+    white_soft = max(start["white"], co["white_target"])
+    crush_ok = max(start["crushed"], co["crushed_share"])
 
-    def node(c, pivot=p.GREY):
-        return p.Cdl(slope=(c, c, c), offset=(pivot * (1.0 - c),) * 3)
+    def stats(k, g, pw):
+        node = contrast_node(k, g, pw)
+        o = node.offset[0]
+        ys = [np.interp(np.maximum(k * v + o, 0.0) ** pw, grid, curve) for v in ls]
+        each = [tone_stats(y) for y in ys if len(y)]
+        return {key: float(np.median([e[key] for e in each])) for key in each[0]} if each else start
 
-    def pct(c, pivot=p.GREY):
-        return sim.luma_percentiles(before + [node(c, pivot)])
+    def cost(k, g, pw):
+        st = stats(k, g, pw)
+        err = 0.0
+        if st["black"] > t["black_hi"]:
+            err += ((st["black"] - t["black_hi"]) / 0.01) ** 2
+        elif st["black"] < t["black_lo"]:
+            err += ((t["black_lo"] - st["black"]) / 0.01) ** 2
+        if t["spread"]:
+            err += ((st["spread"] - t["spread"]) / 0.03) ** 2
+        if st["crushed"] > crush_ok:                    # shadows that turn to solid black
+            err += ((st["crushed"] - crush_ok) / 0.01) ** 2
+        if st["white"] > white_cap:
+            err += ((st["white"] - white_cap) / 0.005) ** 2
+        if st["white"] > white_soft:                    # experts keep the whites under ~0.9
+            err += ((st["white"] - white_soft) / 0.02) ** 2
+        err += 1.0 * (k - 1.0) ** 2 + 0.3 * (pw - 1.0) ** 2 + 0.2 * g ** 2     # the least change that does it
+        return err, st
 
-    black, white = pct(1.0)
-    values.update(black_before=float(black), white_before=float(white))
-    c, pivot = 1.0, p.GREY
-    goal = None
-    if not (black_lo <= black <= black_hi):
-        goal = black_hi if black > black_hi else black_lo
-        c = _bisect(lambda x: pct(x)[0], goal, 0.5, 2.5)          # black falls as contrast rises
-    # whites may rise into the output LUT's soft shoulder, up to white_ceiling (or stay where the camera put them)
-    white_cap = max(white, co["white_ceiling"])
-    if c > 1.0 and pct(c)[1] > white_cap:
-        # levels on the neutral axis: the display black and white as DaVinci Intermediate values, mapped linearly
-        def di(y):
-            return _bisect(sim.grey_luma, y, -0.1, 1.2)
-        b0, w0, bt, wt = di(black), di(white), di(goal), di(white_cap)
-        c2 = (wt - bt) / max(w0 - b0, 1e-6)
-        pivot2 = (bt - c2 * b0) / (1.0 - c2) if abs(1.0 - c2) > 1e-6 else p.GREY
-        # the mids may come down only so far: then the black stays higher than its goal
-        max_drop = co["max_grey_shift"] * p.STOP
-        if (1.0 - c2) * (pivot2 - p.GREY) < -max_drop:
-            grey_to = p.GREY - max_drop
-            c2 = (wt - grey_to) / max(w0 - p.GREY, 1e-6)
-            pivot2 = (grey_to - c2 * p.GREY) / (1.0 - c2) if abs(1.0 - c2) > 1e-6 else p.GREY
-        if c2 > 1.0:
-            c, pivot = c2, pivot2
-        else:
-            c = min(c, _bisect(lambda x: pct(x)[1], white_cap, 1.0, c))
+    ks = np.arange(lo_c, hi_c + 1e-9, 0.04)
+    pws = np.arange(lo_p, hi_p + 1e-9, 0.1)
+    # around grey first: the exposure node decided the mids. Only when the whites hold the curve back and the
+    # black stays above its band may the mids come down, at most max_grey_shift
+    _, k, g, pw = min(((cost(k, 0.0, q)[0], k, 0.0, q) for k in ks for q in pws), key=lambda x: x[0])
+    st = cost(k, 0.0, pw)[1]
+    shift_allowed = co["max_grey_shift"] > 0 and st["white"] >= white_soft - 0.005 and st["black"] > t["black_hi"]
+    if shift_allowed:
+        gs = np.arange(-co["max_grey_shift"], 1e-9, 0.1)
+        _, k, g, pw = min(((cost(kk, gg, q)[0], kk, gg, q) for kk in ks for gg in gs for q in pws), key=lambda x: x[0])
+    lim_g = -co["max_grey_shift"] - 1e-9 if shift_allowed else -1e-9
+    for sk, sg, sp in ((0.02, 0.05, 0.05), (0.01, 0.025, 0.025), (0.005, 0.01, 0.01)):     # refine around the best
+        cand = [(cost(kk, gg, qq)[0], kk, gg, qq) for kk in (k - sk, k, k + sk) for gg in (g - sg, g, g + sg)
+                for qq in (pw - sp, pw, pw + sp)
+                if lo_c <= kk <= hi_c and lim_g <= gg <= 1e-9 and lo_p - 1e-9 <= qq <= hi_p + 1e-9]
+        _, k, g, pw = min(cand, key=lambda x: x[0])
     confidence = 1.0
     if m.haze:
-        c = 1.0 + (c - 1.0) * co["haze_factor"]
         confidence -= conf["haze"]
     if m.high_key or m.low_key:
         confidence -= conf["key"]
-    limited = not (lo_c <= c <= hi_c)
-    c = min(max(c, lo_c), hi_c)
-    black_after, white_after = pct(c, pivot)
-    values.update(contrast=float(c), contrast_pivot=float(pivot), black_after=float(black_after),
-                  white_after=float(white_after),
-                  grey_shift_stops=float((1.0 - c) * (pivot - p.GREY) / p.STOP))
-    return node(c, pivot), _clamp(confidence), limited
+    limited = bool(k <= lo_c + 1e-6 or k >= hi_c - 1e-6)
+    node = contrast_node(k, g, pw)
+    black_after, white_after = sim.luma_percentiles(before + [node])
+    end = stats(k, g, pw)
+    values.update(contrast=float(k), contrast_power=float(pw), grey_shift_stops=float(g),
+                  black_before=float(start["black"]), white_before=float(start["white"]),
+                  black_after=float(black_after), white_after=float(white_after),
+                  spread_before=float(start["spread"]), spread_after=float(end["spread"]), spread_target=t["spread"],
+                  black_target=t["black"], crushed_after=float(end["crushed"]), frames_measured=len(ls))
+    return node, _clamp(confidence), limited
 
 
 # ------------------------------------------------------------------------------------------ 04 saturation

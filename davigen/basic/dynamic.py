@@ -44,23 +44,28 @@ HEADROOM = 1.05         # node 03 is set this much above the highest contrast, s
 
 def resolve_nodes(kf: Keyframes) -> tuple[p.Cdl, list[dict]]:
     """How the keyframes are written into Resolve (concept §12): Resolve's Contrast is exact only up to 1, so node
-    03 holds the clip's highest contrast as a constant CDL (SetCDL), and node 04 takes the rest back per keyframe
-    with a Contrast ≤ 1 around a pivot, plus the saturation. Returns (node 03, [{contrast, pivot, sat}] per
-    keyframe); composed they give exactly each keyframe's contrast node."""
+    03 holds a constant tone curve – the steepest moment's, a little steeper still (HEADROOM), with the clip's toe
+    – by SetCDL, and node 04 takes it back per keyframe with a Contrast ≤ 1 around a pivot, plus the saturation.
+    Each keyframe's node 04 is the linear fit that best turns node 03 into that moment's own curve (exact when
+    the curves differ only in slope and offset). Returns (node 03, [{contrast, pivot, sat}] per keyframe)."""
     cons, sats = kf.nodes[c.CONTRAST], kf.nodes[c.SATURATION]
-    top = max(n.slope[0] for n in cons)
-    if top <= 1.0 + 1e-6:
+    top = max(cons, key=lambda n: n.slope[0])
+    power = float(np.median([n.power[0] for n in cons]))
+    if top.slope[0] <= 1.0 + 1e-6 and abs(power - 1.0) < 1e-6:
         node03 = p.Cdl()
     else:
-        k3 = top * HEADROOM
-        best = max(cons, key=lambda n: n.slope[0])
-        node03 = p.Cdl(slope=(k3,) * 3, offset=(_pivot(best) * (1.0 - k3),) * 3)
-    k3, o3 = node03.slope[0], node03.offset[0]
+        k3 = max(top.slope[0], 1.0) * HEADROOM
+        node03 = c.contrast_node(k3, _grey_shift(top), power)
+    x = np.linspace(0.05, 0.85, 33)
+    base = p.apply_cdl(np.repeat(x[:, None], 3, 1), node03)[:, 0]
     rows = []
     for n, sat in zip(cons, sats):
-        k = n.slope[0] / k3
-        pivot = (n.offset[0] - k * o3) / (1.0 - k) if abs(1.0 - k) > 1e-6 else p.GREY
-        rows.append({"contrast": float(k), "pivot": float(pivot), "sat": float(sat.sat)})
+        want = p.apply_cdl(np.repeat(x[:, None], 3, 1), n)[:, 0]
+        k, b = np.polyfit(base, want, 1)
+        k = float(min(k, 1.0))
+        b = float(np.mean(want - k * base))
+        pivot = b / (1.0 - k) if abs(1.0 - k) > 1e-6 else p.GREY
+        rows.append({"contrast": k, "pivot": float(pivot), "sat": float(sat.sat)})
     return node03, rows
 
 
@@ -73,6 +78,13 @@ def node04_cdl(row: dict) -> p.Cdl:
 
 def _mired(cct: float) -> float:
     return 1e6 / max(float(cct), 1000.0)
+
+
+def _median_n(values: np.ndarray, n: int) -> np.ndarray:
+    """A running median over n neighbours (fewer at the ends)."""
+    v = np.asarray(values, dtype="float64")
+    half = n // 2
+    return np.array([np.median(v[max(0, i - half): i + half + 1]) for i in range(len(v))])
 
 
 def _median3(values: np.ndarray) -> np.ndarray:
@@ -147,8 +159,6 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
     wb_static = corr.nodes[c.WHITE_BALANCE]
     wb_moves = (float(np.ptp(mireds)) >= dy["min_change_mired"] and not wb_static.is_identity
                 and corr.confidence.get(c.WHITE_BALANCE, 0.0) >= dy["min_wb_confidence"])
-    if not exposure_moves and not wb_moves:
-        return None
 
     exp_static = corr.nodes[c.EXPOSURE]
     key_di = float(p.to_log(0.18 * 2.0 ** median_key))
@@ -203,27 +213,58 @@ def plan(frames: list[int], samples: list[dict], m: ms.Measurement, corr: c.Corr
         wbs.append(wb)
         kelvins.append(float(1e6 / mired))
 
-    keep = _simplify(frames, [np.array([o.offset[0], *w.offset]) for o, w in zip(offsets, wbs)],
+    # contrast per moment, as its own exposure leaves it: a drone flight from the sea over a cliff, the inside of a
+    # tunnel. Smoothed like the exposure; it only gets keyframes when it really moves (contrast_min_change)
+    tol = settings["measure"]["clip_tolerance"]
+    own = []
+    for thumb, o, w in zip(thumbs, offsets, wbs):
+        sim1 = c._Sim([np.asarray(thumb, dtype="float64")[..., :3]], output_lut, m.clip_level, tol)
+        own.append(c._contrast(m, sim1, [o, w], settings, {})[0])
+    sim = c._Sim([np.asarray(t, dtype="float64")[..., :3] for t in thumbs], output_lut, m.clip_level, tol)
+    sim.frames = [p.apply_nodes(f, [o, w]) for f, o, w in zip(sim.frames, offsets, wbs)]
+    whole = c._contrast(m, sim, [], settings, {})[0]           # the clip's one value, over every moment
+    k0, g0 = whole.slope[0], _grey_shift(whole)
+    # like the exposure: differences up to contrast_dead from the clip's value stay alone, beyond it they are
+    # followed, smoothed, and never faster than max_contrast_per_second
+    # a single frame's contrast is noisier than its exposure: a median over five neighbours
+    raw_k = _median_n(np.array([n.slope[0] for n in own]), 5)
+    raw_g = _median_n(np.array([_grey_shift(n) for n in own]), 5)
+    raw_p = _median_n(np.array([n.power[0] for n in own]), 5)
+    p0 = whole.power[0]
+    want_k = np.array([k0 + dy["contrast_follow"] * _dead(k - k0, dy["contrast_dead"]) for k in raw_k])
+    moved = np.abs(want_k - k0) > 1e-9
+    want_g = np.where(moved, raw_g, g0)
+    want_p = np.where(moved, p0 + dy["contrast_follow"] * (raw_p - p0), p0)
+    slopes = _rate_limit(times, _smooth_time(times, want_k, dy["smooth_seconds"]), dy["max_contrast_per_second"])
+    shifts = _smooth_time(times, want_g, dy["smooth_seconds"])
+    powers = _smooth_time(times, want_p, dy["smooth_seconds"])
+    contrast_moves = float(np.max(np.abs(slopes - k0))) >= dy["contrast_min_change"]
+    if not (exposure_moves or wb_moves or contrast_moves):
+        return None
+    if contrast_moves:
+        cons = [c.contrast_node(float(k), float(g), float(q)) for k, g, q in zip(slopes, shifts, powers)]
+    else:
+        cons = [whole] * len(frames)
+
+    keep = _simplify(frames, [np.array([o.offset[0], *w.offset, n.offset[0], 0.3 * (n.slope[0] - 1.0)])
+                              for o, w, n in zip(offsets, wbs, cons)],
                      dy["tolerance_stops"] * p.STOP, dy["max_keyframes"])
     if len(keep) < 2:
         return None
-    # contrast can't be keyframed exactly in Resolve (its Contrast is an S-curve, concept §12), so it stays one
-    # value, solved on every moment as nodes 01 and 02 leave it: the street's contrast alone crushed a lifted tunnel
-    contrast = corr.nodes[c.CONTRAST]
-    if exposure_moves:
-        sim = c._Sim([np.asarray(t, dtype="float64")[..., :3] for t in thumbs], output_lut, m.clip_level,
-                     settings["measure"]["clip_tolerance"])
-        sim.frames = [p.apply_nodes(f, [o, w]) for f, o, w in zip(sim.frames, offsets, wbs)]
-        contrast = c._contrast(m, sim, [], settings, {})[0]
-        contrast = _dont_crush(contrast, sim, stops_out, settings)
     pick = [frames.index(f) for f in keep]
-    reason = " and ".join(x for x, on in (("exposure", exposure_moves), ("white balance", wb_moves)) if on)
+    reason = " and ".join(x for x, on in (("exposure", exposure_moves), ("white balance", wb_moves),
+                                          ("contrast", contrast_moves)) if on)
     return Keyframes(
         frames=keep,
         nodes={c.EXPOSURE: [offsets[i] for i in pick], c.WHITE_BALANCE: [wbs[i] for i in pick],
-               c.CONTRAST: [contrast] * len(pick), c.SATURATION: [corr.nodes[c.SATURATION]] * len(pick)},
+               c.CONTRAST: [cons[i] for i in pick], c.SATURATION: [corr.nodes[c.SATURATION]] * len(pick)},
         stops=[stops_out[i] for i in pick], kelvin=[kelvins[i] for i in pick],
         reason=f"{reason} change within the shot")
+
+
+def _grey_shift(node: p.Cdl) -> float:
+    """Where a contrast node puts grey, in stops."""
+    return float((p.apply_cdl(np.full(3, p.GREY), node)[0] - p.GREY) / p.STOP)
 
 
 def _smooth_time(times: np.ndarray, values: np.ndarray, seconds: float) -> np.ndarray:
@@ -246,28 +287,6 @@ def _rate_limit(times: np.ndarray, values: np.ndarray, per_second: float) -> np.
             step = per_second * abs(times[i] - times[j])
             out[i] = min(max(out[i], out[j] - step), out[j] + step)
     return out
-
-
-def _dont_crush(contrast: p.Cdl, sim, stops: list[float], settings: dict) -> p.Cdl:
-    """Less contrast when it would push the lifted moments' black point (the tunnel) under the band's lower end."""
-    lifted = [i for i, st in enumerate(stops) if st >= settings["dynamic"]["dead_stops"]]
-    k0 = contrast.slope[0]
-    if not lifted or k0 <= 1.0:
-        return contrast
-    pivot = _pivot(contrast)
-    floor = settings["contrast"]["black"][0]
-
-    def black(k):
-        node = p.Cdl(slope=(k,) * 3, offset=(pivot * (1.0 - k),) * 3)
-        ys = []
-        for i in lifted:
-            d = p.luminance(p.apply_lut(p.apply_cdl(sim.frames[i], node), sim.output_lut))
-            ys.append(np.percentile(d, 0.5))
-        return float(np.median(ys))
-    if black(k0) >= floor:
-        return contrast
-    k = c._bisect(black, floor, 1.0, k0) if black(1.0) >= floor else 1.0
-    return p.Cdl(slope=(k,) * 3, offset=(pivot * (1.0 - k),) * 3)
 
 
 def _pivot(cdl: p.Cdl) -> float:

@@ -120,11 +120,11 @@ def test_resolve_nodes_compose_to_each_contrast():
     kf = dyn.Keyframes(frames=list(range(0, 60, 10)), nodes={c.EXPOSURE: [p.Cdl()] * 6, c.WHITE_BALANCE: [p.Cdl()] * 6,
                                                             c.CONTRAST: cons, c.SATURATION: [p.Cdl(sat=1.1)] * 6})
     node03, rows = dyn.resolve_nodes(kf)
-    x = np.linspace(0.0, 1.0, 11)
+    x = np.linspace(0.05, 0.85, 11)
     for want, row in zip(cons, rows):
         assert row["contrast"] <= 1.0
         got = p.apply_cdl(p.apply_cdl(np.repeat(x[:, None], 3, 1), node03), dyn.node04_cdl({**row, "sat": 1.0}))
-        assert np.allclose(got[:, 0], want.slope[0] * x + want.offset[0], atol=1e-9)
+        assert np.allclose(got[:, 0], want.slope[0] * x + want.offset[0], atol=1e-6)
 
 
 def test_rides_are_smooth_and_rate_limited():
@@ -134,3 +134,15 @@ def test_rides_are_smooth_and_rate_limited():
     assert np.all(np.abs(np.diff(ride)) <= 3.0 * 0.1 + 1e-9)             # never faster than 3 stops per second
     assert ride[0] == pytest.approx(2.0, abs=1e-3) and ride[-1] == pytest.approx(0.0, abs=1e-3)
     assert 0.8 < ride[30] < 1.2                                          # centred on the change
+
+
+def test_resolve_nodes_with_a_toe():
+    """With a power in the curves, node 04's linear fit still lands each keyframe close to its own curve."""
+    cons = [c.contrast_node(k, 0.0, pw) for k, pw in ((1.2, 1.2), (1.5, 1.25), (1.1, 1.15))]
+    kf = dyn.Keyframes(frames=[0, 10, 20], nodes={c.EXPOSURE: [p.Cdl()] * 3, c.WHITE_BALANCE: [p.Cdl()] * 3,
+                                                  c.CONTRAST: cons, c.SATURATION: [p.Cdl()] * 3})
+    node03, rows = dyn.resolve_nodes(kf)
+    x = np.repeat(np.linspace(0.1, 0.8, 15)[:, None], 3, 1)
+    for want, row in zip(cons, rows):
+        got = p.apply_cdl(p.apply_cdl(x, node03), dyn.node04_cdl(row))
+        assert row["contrast"] <= 1.0 and np.abs(got - p.apply_cdl(x, want)).max() < 0.02

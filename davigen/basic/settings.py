@@ -48,7 +48,10 @@ DEFAULTS: dict = {
     "white_balance": {
         "cct_strength": [[7500, 0.6], [5000, 1.0], [3500, 0.6], [0, 0.35]], "max_duv": 0.02, "neutral_cct": 6504,
     },
-    "contrast": {"range": [0.85, 1.8], "black": [0.02, 0.04], "white_max": 0.95, "white_ceiling": 0.98, "max_grey_shift": 0.5, "haze_factor": 1.0},
+    "contrast": {"range": [0.85, 1.8], "black_by_range": [[4.0, 0.08], [6.0, 0.03], [8.0, 0.018]],
+                 "black_tolerance": 0.01, "spread_by_range": [[4.0, 0.58], [6.0, 0.63], [8.0, 0.68]],
+                 "power_range": [0.9, 1.6], "crushed_share": 0.015,
+                 "white_max": 0.95, "white_target": 0.9, "white_ceiling": 0.98, "max_grey_shift": 0.5},
     "saturation": {"range": [0.85, 1.25], "chroma": [12, 26]},
     "confidence": {
         "clipped": 0.3, "changes": 0.3, "key": 0.3, "night": 0.2, "limit": 0.2, "skin_disagree": 0.2,
@@ -57,7 +60,7 @@ DEFAULTS: dict = {
     },
     "dynamic": {
         "enabled": True, "min_change_stops": 1.5, "min_change_mired": 30, "min_wb_confidence": 0.6,
-        "dead_stops": 0.75, "dead_mired": 15, "follow": 0.75, "wb_follow": 0.8, "max_stops_up": 3.0, "hold_percentile": 97.0, "smooth_seconds": 0.5, "max_stops_per_second": 3.0,
+        "dead_stops": 0.75, "dead_mired": 15, "follow": 0.75, "wb_follow": 0.8, "max_stops_up": 3.0, "hold_percentile": 97.0, "smooth_seconds": 0.5, "max_stops_per_second": 3.0, "contrast_dead": 0.25, "contrast_follow": 0.7, "contrast_min_change": 0.1, "max_contrast_per_second": 0.3,
         "refine_step_stops": 0.4, "refine_step_mired": 20, "refine_frames": 6, "refine_passes": 2,
         "tolerance_stops": 0.05, "max_keyframes": 16,
     },

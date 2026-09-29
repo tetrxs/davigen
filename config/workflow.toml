@@ -248,11 +248,20 @@ neutral_cct = 6504                  # D65, the white of Rec.709
 
 [basic_correction.contrast]
 range = [0.85, 1.8]
-black = [0.02, 0.04]                # 0.5th percentile of display luma
-white_max = 0.95                    # exposure only brightens while the 99.5th percentile stays under this …
-white_ceiling = 0.98                # … contrast may push it into the output LUT's soft shoulder up to this
-max_grey_shift = 0.5                # when the whites hold the contrast back, the pivot moves up and the mids drop at most this (stops)
-haze_factor = 1.0                   # flat, hazy scenes get this share of the change (1: the full contrast, a dehaze)
+# Targets by the scene's dynamic range (stops between its 0.5th and 99.5th luminance percentile, as shot): [range,
+# value] rows, interpolated. Measured on 377 expert-C renders of MIT-Adobe FiveK (display luma, Rec.709 γ 2.4):
+# range <5 / 5–6.5 / 6.5–8 / >8 stops → black 0.070 / 0.022 / 0.007 / 0.002, spread 0.56 / 0.65 / 0.71 / 0.80,
+# white 0.83 / 0.88 / 0.91 / 0.99. Stills are looked at one by one; for video the blacks are kept a little
+# higher and the spread a little narrower (scenes cut together, drone LUTs bring their own contrast).
+black_by_range = [[4.0, 0.08], [6.0, 0.03], [8.0, 0.018]]     # 0.5th percentile of display luma
+black_tolerance = 0.01              # the black may sit this far either side of it
+spread_by_range = [[4.0, 0.58], [6.0, 0.63], [8.0, 0.68]]     # 5th to 95th percentile of display luma
+power_range = [0.9, 1.6]            # the toe: above 1 the shadows go down further than the mids
+crushed_share = 0.015               # at most this share of the frame may end under 1.2 % luma (solid black)
+white_max = 0.95                    # exposure only brightens while the 99.5th percentile stays under this
+white_target = 0.9                  # contrast keeps the whites around here, as experts do …
+white_ceiling = 0.98                # … and never pushes them over this (or over where the camera put them)
+max_grey_shift = 0.5                # when the whites hold the contrast back, the mids may drop at most this (stops)
 
 [basic_correction.saturation]
 range = [0.85, 1.25]
@@ -290,6 +299,10 @@ max_stops_up = 3.0                  # a moment (a tunnel) may be lifted this far
 hold_percentile = 97.0              # a lifted moment may push the brightest 3 % (a tunnel's exit, lamps) to white
 smooth_seconds = 0.5                # moments are averaged over this long (a hand-ridden exposure, not a jump) …
 max_stops_per_second = 3.0          # … and never change faster than this
+contrast_dead = 0.25                # a moment's own contrast within this of the clip's stays with the clip …
+contrast_follow = 0.7               # … beyond it this share of the difference is followed …
+contrast_min_change = 0.1           # … and contrast gets keyframes only when a moment then moves this far …
+max_contrast_per_second = 0.3       # … changing at most this much per second
 refine_step_stops = 0.4             # neighbouring samples further apart than this get more samples in between …
 refine_step_mired = 20
 refine_frames = 6                   # … this many per gap, in up to refine_passes extra renders

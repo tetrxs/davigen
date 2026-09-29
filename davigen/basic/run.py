@@ -153,8 +153,9 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
     for it in measurable:
         it.keyframes = dynamic.plan(it.all_frames, it.all_samples, it.measurement, it.shot.correction,
                                     it.all_thumbs, it.luts[1], s, fps=it.fps)
-        if it.keyframes:                    # its contrast was solved on every moment: the clip's one value now
-            con = it.keyframes.nodes[c.CONTRAST][0]
+        if it.keyframes:                    # its contrast was solved on every moment: the typical one for the record
+            cons = sorted(it.keyframes.nodes[c.CONTRAST], key=lambda n: n.slope[0])
+            con = cons[len(cons) // 2]
             it.shot.correction.nodes[c.CONTRAST] = con
             it.shot.correction.values.update(contrast=float(con.slope[0]), contrast_over_keyframes=True)
     moving = sum(1 for i in measurable if i.keyframes)
