@@ -30,6 +30,7 @@ STEPS = [
     ("scenes", "Scenes + matching"),
     ("write", "Write DAVIGEN_AUTO + markers"),
     ("save", "Save"),
+    ("spread", "The same clips on every other timeline"),
 ]
 
 
@@ -410,9 +411,26 @@ def goto(resolve, item_id: str, timeline_name: str = "") -> bool:
 
 
 def flow(resolve, cfg: Config, options: dict, rep) -> None:
-    """Adapter for creator.run / App._start: options = {dry_run, recompute, timeline}."""
+    """Adapter for creator.run / App._start: options = {dry_run, recompute, timeline, spread}."""
     basic_correction(resolve, cfg, rep, dry_run=bool(options.get("dry_run")),
                      recompute=bool(options.get("recompute")), timeline_name=options.get("timeline", ""))
+    if not options.get("spread") or options.get("dry_run"):
+        rep.finish("spread", "not chosen" if not options.get("dry_run") else "dry run", state="skipped")
+        return
+    from ..creator import project_base  # noqa: PLC0415
+    from . import carry  # noqa: PLC0415
+    proj = resolve.GetProjectManager().GetCurrentProject()
+    current = proj.GetCurrentTimeline()
+    rep.start("spread")
+    counts = carry.carry_over(proj, project_base(proj),
+                              [proj.GetTimelineByIndex(i) for i in range(1, proj.GetTimelineCount() + 1)],
+                              refresh=bool(options.get("recompute")),
+                              progress=lambda i, n, name: rep.detail("spread", f"{i}/{n} · {name}"))
+    rep.warn(counts["warnings"][:20])
+    if current is not None:
+        proj.SetCurrentTimeline(current)
+    resolve.GetProjectManager().SaveProject()
+    rep.finish("spread", carry.summary(counts))
 
 
 RESET_STEPS = [("reset", "Back to your versions"), ("save", "Save")]

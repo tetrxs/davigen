@@ -44,7 +44,7 @@ def test_full_flow(luts, tmp_path):
     resolve, proj, tl, items = setup(luts)
     rep = Reporter(run.STEPS)
     record = run.basic_correction(resolve, Config(), rep, base=tmp_path)
-    assert all(s["state"] == "done" for s in rep.steps.values()), rep.steps
+    assert all(s["state"] == "done" for k, s in rep.steps.items() if k != "spread"), rep.steps   # flow() spreads
     a, b, orphan = items
     assert a.current == write.AUTO and b.current == write.AUTO            # written, and left active
     assert a.versions["Version 1"]["cdl"] == {}                             # user grade untouched
@@ -154,3 +154,23 @@ def test_reset_removes_davigen_auto_only(luts, tmp_path):
     assert all(i.versions["Version 1"] == user_before[i.uid] for i in items)       # the user's grade untouched
     assert not any(m["customData"] == write.MARKER_DATA for i in items for m in i.markers.values())
     assert rep.result["removed"] == 2
+
+
+def test_other_timelines_get_the_same_grade(luts, tmp_path):
+    """A rough cut built from the footage starts ungraded; carry_over writes what the record has, keyframes too."""
+    from davigen.basic import carry
+    resolve, proj, item = tunnel(luts)
+    run.basic_correction(resolve, Config(), Reporter(run.STEPS), base=tmp_path)
+    cut_item = fr.TimelineItem(item.mpi, 90000, 150, 180)            # a trimmed piece across the tunnel exit
+    cut = fr.Timeline("TL_02_EDIT_AUTO", [cut_item])
+    proj.timelines.append(cut)
+    counts = carry.carry_over(proj, tmp_path, proj.timelines)
+    assert counts["written"] == 1 and counts["keyframed"] == 1 and counts["kept"] == 0
+    assert cut_item.GetColorGroup() is not None                           # in its colour group: input LUT
+    assert "ApplyGradeFromDRX:2" in cut_item.calls
+    # the same picture as on the assembly at the same source frames, before and after the exit
+    for f in (200, 300):
+        assert np.allclose(proj._graded(cut_item, f), proj._graded(item, f), atol=1e-6)
+    # the assembly itself isn't touched, and a second pass keeps what is there
+    again = carry.carry_over(proj, tmp_path, proj.timelines)
+    assert again["written"] == 0 and again["kept"] == 1

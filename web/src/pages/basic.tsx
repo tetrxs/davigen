@@ -34,6 +34,7 @@ export function BasicPage() {
   const [sample, setSample] = React.useState("")
   const [rebuild, setRebuild] = React.useState(false)
   const [dryRun, setDryRun] = React.useState(false)
+  const [spread, setSpread] = React.useState(true)
 
   React.useEffect(() => {
     api<LookSetup>("/api/basic/look")
@@ -70,6 +71,7 @@ export function BasicPage() {
     startFlow("/api/basic", dryRun ? "Basic correction · dry run" : "Basic correction", "basic", {
       dry_run: dryRun,
       recompute: rebuild,
+      spread,
     })
   }
 
@@ -100,6 +102,8 @@ export function BasicPage() {
             setRebuild={setRebuild}
             dryRun={dryRun}
             setDryRun={setDryRun}
+            spread={spread}
+            setSpread={setSpread}
           />
         )}
       </div>
@@ -238,6 +242,8 @@ function StartStep({
   setRebuild,
   dryRun,
   setDryRun,
+  spread,
+  setSpread,
 }: {
   data: LookSetup
   look: Look
@@ -245,6 +251,8 @@ function StartStep({
   setRebuild: (v: boolean) => void
   dryRun: boolean
   setDryRun: (v: boolean) => void
+  spread: boolean
+  setSpread: (v: boolean) => void
 }) {
   const st = data.status
   const fresh = Math.max(0, st.clips - st.corrected)
@@ -302,6 +310,18 @@ function StartStep({
                   </FieldDescription>
                 </FieldContent>
                 <Switch id="rebuild" checked={rebuild} onCheckedChange={setRebuild} />
+              </Field>
+            </FieldLabel>
+            <FieldLabel htmlFor="spread">
+              <Field orientation="horizontal">
+                <FieldContent>
+                  <FieldTitle>On every other timeline too</FieldTitle>
+                  <FieldDescription>
+                    Resolve grades each timeline's clips separately: rough cuts, selects and your edits get the same
+                    DAVIGEN_AUTO – no measuring again, keyframes included.
+                  </FieldDescription>
+                </FieldContent>
+                <Switch id="spread" checked={spread} onCheckedChange={setSpread} />
               </Field>
             </FieldLabel>
             <FieldLabel htmlFor="dry">

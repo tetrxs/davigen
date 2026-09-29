@@ -3,6 +3,7 @@ import {
   ArrowRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
+  CopyIcon,
   FolderOpenIcon,
   GlobeIcon,
   ListChecksIcon,
@@ -312,6 +313,14 @@ function CurrentProject() {
             <Button variant="outline" onClick={() => navigate("report")}>
               <ListChecksIcon data-icon="inline-start" />
               Report
+            </Button>
+            <Button
+              variant="outline"
+              title="Rough cuts, selects and your own edits get the same DAVIGEN_AUTO as the corrected clips"
+              onClick={() => startFlow("/api/basic/carry", "Basic correction on every timeline", "maintenance", {})}
+            >
+              <CopyIcon data-icon="inline-start" />
+              On every timeline
             </Button>
             <Button variant="ghost" className="ml-auto text-muted-foreground" onClick={() => setConfirmReset(true)}>
               Remove DAVIGEN_AUTO

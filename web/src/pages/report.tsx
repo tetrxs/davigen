@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ListChecksIcon, ScaleIcon, SparklesIcon } from "lucide-react"
+import { CopyIcon, ListChecksIcon, ScaleIcon, SparklesIcon } from "lucide-react"
 
 import { Page, PageHeader } from "@/components/page-header"
 import { ReportView } from "@/components/report"
@@ -54,6 +54,14 @@ export function ReportPage() {
               >
                 <ScaleIcon data-icon="inline-start" />
                 Compare with my grade
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => startFlow("/api/basic/carry", "Basic correction on every timeline", "maintenance", {})}
+                title="Rough cuts, selects and your own edits get the same DAVIGEN_AUTO"
+              >
+                <CopyIcon data-icon="inline-start" />
+                On every timeline
               </Button>
               <Button onClick={() => navigate("basic")}>
                 <SparklesIcon data-icon="inline-start" />

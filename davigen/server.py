@@ -181,7 +181,7 @@ class App:
     def start_basic(self, body: dict) -> dict:
         from .basic import run as basic  # noqa: PLC0415 - numpy is only needed once Basic Correction runs
         options = {"dry_run": bool(body.get("dry_run")), "recompute": bool(body.get("recompute")),
-                   "timeline": body.get("timeline", "")}
+                   "timeline": body.get("timeline", ""), "spread": bool(body.get("spread"))}
         return self._start(basic.STEPS, basic.flow, options)
 
     def start_edit(self, body: dict) -> dict:
@@ -294,6 +294,10 @@ class App:
             base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
         width = min(max(int((q.get("w") or ["320"])[0] or 320), 96), 960)
         return posters.clip_frame(base, path, float((q.get("s") or ["0"])[0] or 0), width)
+
+    def start_basic_carry(self, body: dict) -> dict:
+        from .basic import carry  # noqa: PLC0415
+        return self._start(carry.STEPS, carry.flow, {"refresh": bool(body.get("refresh"))})
 
     def start_basic_reset(self, body: dict) -> dict:
         from .basic import run as basic  # noqa: PLC0415
@@ -660,6 +664,7 @@ def make_handler(app: App):
         "/api/basic/learn": app.basic_learn,
         "/api/basic/look": app.basic_look_save,
         "/api/basic/reset": app.start_basic_reset,
+        "/api/basic/carry": app.start_basic_carry,
         "/api/open-project": app.open_project,
         "/api/reveal": app.reveal,
         "/api/vendor-lut": app.vendor_lut,

@@ -21,6 +21,7 @@ STEPS = [
     ("timeline", "Selects timeline"),
     ("music", "Music: beats, bars, sections"),
     ("roughcut", "Rough cut to music"),
+    ("grade", "Basic correction on the new timelines"),
     ("preview", "Preview video"),
     ("save", "Save"),
 ]
@@ -158,6 +159,7 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
                       pace=pace, shots=[x.to_dict() for x in shots])
         if tl is not None:
             proj.SetCurrentTimeline(tl)
+        _grade(proj, base, [selects_tl, tl], rep)
         rep.start("preview")
         try:
             clips_info = [{"id": p.id, "path": clips[int(p.id)].GetClipProperty("File Path")} for p in plans]
@@ -171,6 +173,7 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     else:
         rep.finish("music", "no music chosen", state="skipped")
         rep.finish("roughcut", "choose a music file for a rough cut", state="skipped")
+        _grade(proj, base, [selects_tl], rep)
         rep.finish("preview", "only with a rough cut", state="skipped")
         if selects_tl is not None:
             proj.SetCurrentTimeline(selects_tl)
@@ -189,6 +192,23 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     rep.finish("save", "00_ADMIN/PROJECT_INFO/edit_assist.json")
     rep.result = result
     return record
+
+
+def _grade(proj, base: Path, timelines: list, rep) -> None:
+    """The clips of davigen's new timelines get the Basic correction their camera files already have."""
+    from ..basic import carry  # noqa: PLC0415
+    timelines = [t for t in timelines if t is not None]
+    rep.start("grade")
+    if not timelines or not carry.graded_clips(base)[0]:
+        rep.finish("grade", "no Basic correction yet – run it once, then 'On every timeline'", state="skipped")
+        return
+    try:
+        counts = carry.carry_over(proj, base, timelines)
+    except Exception as e:  # noqa: BLE001 - the timelines are there; the grade can be added later
+        rep.finish("grade", f"not done: {e}", state="skipped")
+        return
+    rep.warn(counts["warnings"][:10])
+    rep.finish("grade", carry.summary(counts))
 
 
 def _merge_speech(segs: list[sel.Segment], gap: float = 1.0) -> list[list[sel.Segment]]:
