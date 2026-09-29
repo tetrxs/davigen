@@ -1,6 +1,6 @@
 # Concept: Basic Correction
 
-**Status:** built and run on a real project (MARSEILLE_2026, 57 clips, Resolve 21 Free). Keyframes for changes within a clip (§14) are built and tested against a fake Resolve; their end-to-end check in Resolve is open. API answers in §12. The step-by-step plan is in
+**Status:** built and run on a real project (MARSEILLE_2026, 57 clips, Resolve 21 Free). Keyframes for changes within a clip (§14) are verified in Resolve on scratch items. API answers in §12. The step-by-step plan is in
 [docs/plans/basic-correction/](../plans/basic-correction/00_OVERVIEW.md).
 
 Basic Correction fills the technical nodes of every clip grade (`01_EXPOSURE`, `02_WHITE_BALANCE`,
@@ -35,7 +35,7 @@ instead of guessing.
 | `03_CONTRAST` | Slope + Offset: black point to target, around grey or a higher pivot | good |
 | `04_SATURATION` | CDL saturation | medium; skin tones are checked, never rotated |
 | Matching clips of one scene | yes | good, this saves the most time |
-| Exposure or light that changes inside a clip | keyframes on nodes 01–04 (§14) | written as a grade file; verified piece by piece in Resolve, the whole path is *untested* there |
+| Exposure or light that changes inside a clip | keyframes on nodes 01–04 (§14) | written as a grade file; verified in Resolve (exposure, WB, saturation exact, contrast within 1 %) |
 | `05_SECONDARIES`, `06_FINISH`, looks | no | creative work stays with the user |
 
 Basic Correction never decides what a shot *should* look like. A silhouette, a night street or a sunset stays one.
@@ -456,9 +456,20 @@ tested there unless it says *untested*.
 - A still exported after `SetCDL` carries its values as Lift/Gain (100663320–327); the template
   (`templates/drx/KEYFRAME_BASE.drx`) was cleaned of them, or they would add up with the crafted offsets.
 - `ApplyGradeFromDRX` makes the item's node-graph object stale; fetch it again with `GetNodeGraph()`.
-- *Untested* end to end: davigen's writer (`drx.make_keyframe_drx`, `write._write_keyframes`) on a real timeline,
-  and the pixels of contrast and saturation keyframes against `SetCDL` (`dev_kf_verify` is ready for the next
-  session in Resolve).
+- **davigen's writer, end to end (2026-09-29, fresh timeline items):** `write._write_keyframes` with an exposure
+  ramp 0 → 0.1 over 24 frames renders exactly the unchanged picture at the first keyframe and, halfway, the same
+  picture as `SetCDL` offset 0.05 (mean difference 0.0001), in a freshly added version too; the user's version stays
+  untouched. Constant exposure, white balance and saturation keyframes match `SetCDL` exactly (0.00000).
+- **Contrast is not exact:** Resolve's Contrast parameter rolls off towards black and white, so c = 1.2 differs
+  from `SetCDL` slope/offset by 0.7 % of display on average and up to 5 % at the extremes. Gain + Offset and
+  Master Gain + Offset were no closer. Keyframed clips therefore get a slightly softer contrast at the ends than
+  the simulator predicts.
+- **Keyframes stay:** a grade file without keyframes (`ApplyGradeFromDRX`, any mode) leaves existing keyframes in
+  place, and `SetCDL` then writes into only one of them. What does work: `LoadVersionByName(user)`,
+  `DeleteVersionByName("DAVIGEN_AUTO")`, `AddVersion("DAVIGEN_AUTO")` gives a clean copy of the user's version.
+  davigen does that whenever `DAVIGEN_AUTO` had or gets keyframes.
+- Several render jobs queued at once right after a grade change sometimes rendered the later frames with the old
+  grade; one job per `StartRendering` was always right.
 
 **Markers**
 
@@ -527,9 +538,9 @@ keyframing exposure by hand on every such clip is exactly the chore davigen shou
    `tolerance_stops` (0.05), at most `max_keyframes`.
 6. **Write.** `DAVIGEN_AUTO` gets a keyframed copy of davigen's six-node structure through `ApplyGradeFromDRX`
    (§12), only when it has exactly that structure; otherwise the constant values are written and the report says
-   why. Nodes 05 and 06 of a keyframed `DAVIGEN_AUTO` start empty; the user's own version is never touched. When a
-   later run writes constant values again, `DAVIGEN_AUTO` first goes back to the plain structure, because `SetCDL`
-   can't overwrite keyframes.
+   why. Nodes 05 and 06 of a keyframed `DAVIGEN_AUTO` start empty; the user's own version is never touched.
+   Because keyframes can't be removed by a grade file, a `DAVIGEN_AUTO` that had or gets keyframes is first
+   deleted and added again as a fresh copy of the user's version (§12).
 
 Simulated offline with the extra frames (ffmpeg decodes, `measure`, `correct`, `dynamic.plan`): the tunnel
 clip got 11 keyframes, the entry and exit located to within two frames; the car ride P1000079 (outside, then the

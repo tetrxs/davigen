@@ -6,7 +6,8 @@ before/after. Nodes are found by label, never by position. Flags become timeline
 
 A clip whose light changes (dynamic.py) gets its values as keyframes. SetCDL can't write keyframes, so its grade
 in DAVIGEN_AUTO is replaced by a keyframed copy of davigen's six-node structure (drx.make_keyframe_drx), and only
-when DAVIGEN_AUTO has exactly that structure (concept §12, §14).
+when DAVIGEN_AUTO has exactly that structure (concept §12, §14). Keyframes can't be removed again by a grade
+file, so such a DAVIGEN_AUTO is always rebuilt as a fresh copy of the user's version first.
 """
 
 from __future__ import annotations
@@ -100,6 +101,16 @@ def write_item(project, item, correction: c.Correction | None, recompute: bool =
     if dry_run:
         out.skipped = "dry run"
         return out
+    # keyframes survive every later grade file and SetCDL only writes into one of them (verified 2026-09-29):
+    # a DAVIGEN_AUTO that had or gets keyframes is built again as a fresh copy of the user's version
+    if AUTO in names and (had_keyframes or keyframes is not None):
+        source = out.user_version if out.user_version in names and out.user_version != AUTO else \
+            next((n for n in names if n != AUTO), "")
+        if not (source and item.LoadVersionByName(source, 0) and _version_name(item) == source
+                and item.DeleteVersionByName(AUTO, 0)):
+            out.skipped = f"Resolve didn't let davigen rebuild {AUTO} – nothing written"
+            return out
+        names = [n for n in names if n != AUTO]
     if AUTO not in names and not item.AddVersion(AUTO, 0):
         out.skipped = f"Resolve didn't add the version {AUTO}"
         return out
@@ -112,8 +123,6 @@ def write_item(project, item, correction: c.Correction | None, recompute: bool =
     if keyframes is not None and drx_folder is not None:
         if _write_keyframes(item, keyframes, drx_folder, out):
             return out
-    elif had_keyframes and labels(item.GetNodeGraph()) == STRUCTURE and color.CLIP_TEMPLATE.exists():
-        item.GetNodeGraph().ApplyGradeFromDRX(str(color.CLIP_TEMPLATE), 0)
     indices = node_indices(item.GetNodeGraph())
     for label in c.NODES:
         if label not in indices:

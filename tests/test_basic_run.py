@@ -129,5 +129,6 @@ def test_tunnel_exit_is_keyframed(luts, tmp_path):
     cfg = Config()
     cfg.workflow.setdefault("basic_correction", {}).setdefault("dynamic", {})["enabled"] = False
     run.basic_correction(resolve, cfg, Reporter(run.STEPS), base=tmp_path, recompute=True)
-    assert "ApplyGradeFromDRX:0" in item.calls and not item.versions[write.AUTO].get("keyframes")
-    assert item.versions[write.AUTO]["cdl"]                                 # constant values written
+    assert "DeleteVersionByName" in item.calls and not item.versions[write.AUTO].get("keyframes")
+    assert item.versions[write.AUTO]["cdl"] and "SetCDL into keyframes" not in item.calls
+    assert item.versions["Version 1"].get("keyframes") is None and item.current == write.AUTO

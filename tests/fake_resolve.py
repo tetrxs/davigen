@@ -45,7 +45,9 @@ class Graph:
         except (ValueError, IndexError, OSError):
             kf = {}
         timed = {label: [(t, v) for t, v in rows if t is not None] for label, rows in kf.items()}
-        grade["keyframes"] = {label: rows for label, rows in timed.items() if rows and any(v for _, v in rows)}
+        timed = {label: rows for label, rows in timed.items() if rows and any(v for _, v in rows)}
+        if timed:                           # a grade without keyframes leaves old ones in place (verified)
+            grade["keyframes"] = timed
         return True
 
 
@@ -184,6 +186,13 @@ class TimelineItem:
             self.current = name
         return True
 
+    def DeleteVersionByName(self, name, kind):
+        self.calls.append("DeleteVersionByName")
+        if name not in self.versions or name == self.current:
+            return False
+        del self.versions[name]
+        return True
+
     def LoadVersionByName(self, name, kind):
         self.calls.append("LoadVersionByName")
         if name in self.versions and not getattr(self, "refuse_load", False):
@@ -196,7 +205,8 @@ class TimelineItem:
         if self.refuse_cdl:
             return False
         if self.versions[self.current].get("keyframes"):
-            return True                     # Resolve says yes but doesn't write into keyframed nodes (step 01)
+            self.calls.append("SetCDL into keyframes")
+            return True                     # Resolve says yes but writes into one keyframe only (verified)
         self.versions[self.current]["cdl"][int(cdl["NodeIndex"])] = cdl
         return True
 

@@ -14,7 +14,7 @@ reviewable change. Each one ends with tests or a check in Resolve, and leaves da
 | 07 | [Writing into Resolve](07_WRITE.md) | yes | 01, 05 | code done, Resolve check open |
 | 08 | [UI, entry points, config](08_UI.md) | yes | 03, 07 | code done, Resolve check open |
 | 09 | [Evaluation and tuning](09_EVALUATION.md) | yes | 08 | tooling done, needs hand-graded clips |
-| 10 | Keyframes for changes within a clip (concept §14) | yes | 07 | code done, grade format verified in Resolve, end-to-end check open |
+| 10 | Keyframes for changes within a clip (concept §14) | yes | 07 | done 2026-09-29, writer verified in Resolve on scratch items |
 | 11 | Look: black point, targets from FiveK, colourfulness across cameras (concept §5, §6, §13) | no | 05, 06 | done 2026-09-29, tuned offline on MARSEILLE_2026 |
 | 12 | Report detail per clip (before / after, reasons, exposure over time) | no | 08 | done 2026-09-29 |
 
