@@ -28,7 +28,7 @@ from .resolve_api import capabilities, find_project, version
 UI_DIR = Path(__file__).resolve().parent / "ui"
 # Resolve's scripting API isn't thread-safe: requests that talk to Resolve run one at a time.
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
-RESOLVE_ROUTES = {"/api/edit/last", "/api/edit/preview", "/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
+RESOLVE_ROUTES = {"/api/timeline/open", "/api/edit/last", "/api/edit/preview", "/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
                   "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn",
                   "/api/basic/clip", "/api/basic/look"}
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
@@ -209,6 +209,20 @@ class App:
         from .edit import run as edit  # noqa: PLC0415
         base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
         return self._start(edit.PREVIEW_STEPS, edit.preview_flow, {"base": str(base)})
+
+    def open_timeline(self, body: dict) -> dict:
+        """Show one of davigen's timelines on Resolve's Edit page."""
+        from .resolve_api import find_timeline  # noqa: PLC0415
+        name = body.get("name", "")
+        if not re.match(r"^TL_\w+_AUTO_\w+$", name):
+            return {"ok": False, "error": "Not a davigen timeline"}
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        tl = find_timeline(proj, name)
+        if tl is None:
+            return {"ok": False, "error": f"{name} isn't in this project anymore"}
+        ok = bool(proj.SetCurrentTimeline(tl))
+        self.resolve.OpenPage("edit")
+        return {"ok": ok}
 
     def edit_preview_file(self) -> Path:
         with self.resolve_lock:
@@ -655,6 +669,7 @@ def make_handler(app: App):
         "/api/update/check": lambda b: app.updater.check(),
         "/api/pick-music": app.pick_music,
         "/api/edit/preview": app.start_edit_preview,
+        "/api/timeline/open": app.open_timeline,
         "/api/update/run": app.update_run,
         "/api/heartbeat": lambda b: {"ok": True},
         "/api/quit": lambda b: (app.stop.set(), {"ok": True})[1],

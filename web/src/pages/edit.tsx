@@ -6,6 +6,7 @@ import {
   ClapperboardIcon,
   GaugeIcon,
   ListVideoIcon,
+  MonitorPlayIcon,
   MusicIcon,
   PlayIcon,
   SearchIcon,
@@ -401,9 +402,11 @@ function Results({ last, wave }: { last: EditLast; wave?: number[] }) {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">Last run</h2>
-          <p className="text-sm text-muted-foreground">
-            {fmtDate(last.date)} · {[last.selects_timeline, last.rough_cut].filter(Boolean).join(" · ")}
-          </p>
+          <p className="text-sm text-muted-foreground">{fmtDate(last.date)}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {last.selects_timeline && <OpenTimeline name={last.selects_timeline} label="Selects" />}
+          {last.rough_cut && <OpenTimeline name={last.rough_cut} label="Rough cut" />}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -436,6 +439,21 @@ function Results({ last, wave }: { last: EditLast; wave?: number[] }) {
         <SpeechCard clips={last.clips} />
       </div>
     </section>
+  )
+}
+
+function OpenTimeline({ name, label }: { name: string; label: string }) {
+  const { running } = useApp()
+  const open = async () => {
+    const r = await api<{ ok: boolean; error?: string }>("/api/timeline/open", { name })
+    if (r.ok) notify(`${name} is open in Resolve`, "Edit page", "success")
+    else notify("Couldn't open the timeline", r.error, "error")
+  }
+  return (
+    <Button variant="outline" size="sm" disabled={running} onClick={open} title={name}>
+      <MonitorPlayIcon data-icon="inline-start" />
+      {label} in Resolve
+    </Button>
   )
 }
 
