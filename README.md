@@ -96,7 +96,8 @@ Outside that folder the installer writes only three things:
 | LaunchAgent | `~/Library/LaunchAgents/com.davigen.python.plist` | sets `PYTHON3HOME` at login, so Resolve can find davigen's Python |
 | LUTs | `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/davigen/` | the input and output transforms the color groups use |
 
-**Update:** run the same one-liner again. It replaces the code and keeps `data/` and `runtime/`.
+**Update:** *Settings → Update now* in davigen, or run the same one-liner again. Both replace the code and keep
+`data/` and `runtime/`; start davigen again afterwards.
 
 **Uninstall:**
 
@@ -297,6 +298,14 @@ python3 -m venv .venv && .venv/bin/pip install pytest pyflakes -r requirements.t
 .venv/bin/python scripts/dev_server.py --open   # the UI against a fake Resolve
 ```
 
+The UI is a React app (shadcn/ui on Base UI, Tailwind) in `web/`. It builds into `davigen/ui/`, which is committed,
+so installing davigen needs no Node:
+
+```bash
+cd web && npm install && npm run build     # rebuilds davigen/ui/
+npm run dev                                # hot reload; /api is proxied to a davigen on port 8765
+```
+
 - Scanner tests against real footage run when `DAVIGEN_SAMPLE_FOOTAGE` points to a folder of clips.
 - `scripts/scrub_drx.py` strips gallery paths and footage thumbnails from a grade still before it goes into
   `templates/drx/`.
@@ -309,7 +318,8 @@ python3 -m venv .venv && .venv/bin/pip install pytest pyflakes -r requirements.t
 - **`color.py`, `transforms.py`, `colormath.py`, `drx.py`:** color pipeline
 - **`scanner.py`, `mediainfo.py`:** metadata
 - **`catalog.py`:** camera catalog
-- **`server.py` + `ui/`:** the local web UI
+- **`server.py`:** the local API; **`web/`** its UI (built into `ui/`)
+- **`posters.py`, `update.py`:** project pictures for the UI, the update check
 
 Pull requests are welcome. By opening one, you agree that your contribution is licensed under the terms below.
 

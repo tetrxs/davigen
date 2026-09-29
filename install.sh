@@ -52,11 +52,15 @@ else
   say "Downloading davigen ($REF) into $ROOT"
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
-  curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" | tar -xz -C "$TMP" --strip-components 1 \
+  # the exact commit, so davigen's settings can tell whether a newer one exists
+  SHA="$(curl -fsSL -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/$REPO/commits/$REF" 2>/dev/null || true)"
+  [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || SHA=""
+  curl -fsSL "https://codeload.github.com/$REPO/tar.gz/${SHA:-$REF}" | tar -xz -C "$TMP" --strip-components 1 \
     || die "Download failed – check the internet connection and DAVIGEN_REF."
   mkdir -p "$ROOT"
   # replace the code, keep what belongs to this Mac (data/, runtime/)
   rsync -a --delete --exclude '/data/' --exclude '/runtime/' --exclude '/.venv/' "$TMP/" "$ROOT/"
+  if [[ -n "$SHA" ]]; then print -r -- "$SHA" > "$ROOT/.commit"; fi
 fi
 RUNTIME="$ROOT/runtime"
 ARCH="$(uname -m)"

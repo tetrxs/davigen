@@ -16,7 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, catalog, creator, filesystem, formats, naming, providers, scanner, transfer, transforms
+from . import __version__, catalog, creator, filesystem, formats, naming, posters, providers, scanner, transfer, transforms
+from . import update
 from .config import DATA_DIR, Camera, Config, save_settings, settings
 from .formats import Format
 from .project import PM_FOLDER
@@ -46,6 +47,8 @@ class App:
         self.catalog_state: dict = {"running": False, "done": 0, "total": 0, "what": "", "error": ""}
         self.recovery: list[dict] = []
         self.resolve_lock = threading.Lock()
+        self.updater = update.Updater()
+        self._records: dict[Path, tuple[float, dict]] = {}
 
     # ------------------------------------------------------------------ app info
     def info(self) -> dict:
@@ -211,14 +214,54 @@ class App:
                 "rows": basic.rows(record)}
 
     def _basic_entry(self, item_id: str) -> tuple[dict, object]:
-        from .basic import write  # noqa: PLC0415
         proj = self.resolve.GetProjectManager().GetCurrentProject()
         timeline = proj.GetCurrentTimeline() if proj else None
         if timeline is None:
             return {}, None
         base = creator.project_base(proj)
-        record = write.load_record(base, timeline.GetName())
+        record = self._record(base, timeline.GetName())
         return next((e for e in record.get("items", []) if e.get("id") == item_id), {}), base
+
+    def _record(self, base: Path, timeline_name: str) -> dict:
+        """The Basic correction record of a timeline, read again only when the file changed."""
+        from .basic import write  # noqa: PLC0415
+        target = base / "00_ADMIN" / "PROJECT_INFO" / "basic_correction" / f"{timeline_name}.json"
+        stamp = target.stat().st_mtime if target.exists() else 0.0
+        if self._records.get(target, (None,))[0] != stamp:
+            self._records = {target: (stamp, write.load_record(base, timeline_name))}
+        return self._records[target][1]
+
+    def basic_thumb(self, q: dict) -> bytes:
+        """Small PNG of a clip of the last report, graded, from the analysis cache (the report's film strip)."""
+        with self.resolve_lock:
+            entry, base = self._basic_entry((q.get("id") or [""])[0])
+        if not entry:
+            raise FileNotFoundError("unknown clip")
+        return posters.thumb(entry, base)
+
+    # ------------------------------------------------------------------ pictures and updates
+    def _known_folder(self, folder: str) -> Path | None:
+        known = {p["folder"] for p in filesystem.recent_projects(check=False)}
+        return Path(folder) if folder in known and Path(folder).is_dir() else None
+
+    def project_posters(self, q: dict) -> dict:
+        base = self._known_folder((q.get("folder") or [""])[0])
+        if base is None:
+            return {"posters": []}
+        return {"posters": [{"index": i, "name": s["name"], "group": s["group"]}
+                            for i, s in enumerate(posters.sources(base))]}
+
+    def project_poster(self, q: dict) -> bytes:
+        base = self._known_folder((q.get("folder") or [""])[0])
+        if base is None:
+            raise FileNotFoundError("unknown project")
+        width = min(max(int((q.get("w") or ["640"])[0] or 640), 160), 1280)
+        return posters.poster(base, int((q.get("i") or ["0"])[0] or 0), width)
+
+    def update_run(self, body: dict) -> dict:
+        if self.busy():
+            return {"ok": False, "error": "Wait until the running job is finished"}
+        return self.updater.run()
 
     def basic_clip(self, q: dict) -> dict:
         """Everything the record knows about one clip: what was measured, what was decided and why."""
@@ -473,6 +516,8 @@ def make_handler(app: App):
         "/api/basic/report": app.basic_report,
         "/api/basic/clip": app.basic_clip,
         "/api/basic/look": app.basic_look,
+        "/api/project/posters": app.project_posters,
+        "/api/update": lambda q: app.updater.snapshot(),
     }
     routes_post = {
         "/api/validate": app.validate,
@@ -498,6 +543,8 @@ def make_handler(app: App):
         "/api/settings": app.set_settings,
         "/api/catalog/refresh": app.catalog_refresh,
         "/api/cameras": app.add_camera,
+        "/api/update/check": lambda b: app.updater.check(),
+        "/api/update/run": app.update_run,
         "/api/heartbeat": lambda b: {"ok": True},
         "/api/quit": lambda b: (app.stop.set(), {"ok": True})[1],
     }
@@ -553,6 +600,15 @@ def make_handler(app: App):
                     return self._send(403, b"forbidden", "text/plain")
                 try:
                     return self._send(200, app.basic_look_preview(query), "image/png")
+                except Exception as e:  # noqa: BLE001
+                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
+            if url.path in ("/project/poster.png", "/basic/thumb.png"):
+                query = parse_qs(url.query)
+                if (query.get("t") or [""])[0] != app.token:
+                    return self._send(403, b"forbidden", "text/plain")
+                make = app.project_poster if url.path == "/project/poster.png" else app.basic_thumb
+                try:
+                    return self._send(200, make(query), "image/png")
                 except Exception as e:  # noqa: BLE001
                     return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
             if url.path.startswith("/catalog/thumbs/"):
@@ -621,22 +677,8 @@ def serve(resolve, cfg: Config | None = None, open_browser: bool = True, start: 
 
 
 def _look_samples(record: dict, count: int = 4) -> list[dict]:
-    """Clips that show a look well: the longest confident shot of the biggest scenes, one per camera group first."""
-    items = [e for e in record.get("items", []) if e.get("correction") and e.get("frames")]
-    items.sort(key=lambda e: (-(e.get("source_frames") or 0) / max(e.get("clip_fps") or 25.0, 1.0)))
-    out, groups, scenes = [], set(), set()
-    for rule in ("group", "scene", "any"):
-        for e in items:
-            if len(out) >= count or e in out:
-                continue
-            if rule == "group" and e.get("group") in groups:
-                continue
-            if rule == "scene" and e.get("scene") in scenes:
-                continue
-            out.append(e)
-            groups.add(e.get("group"))
-            scenes.add(e.get("scene"))
-    return [{"id": e["id"], "name": e["name"], "group": e.get("group", "")} for e in out]
+    """Clips that show a look well: the longest shot of the biggest scenes, one per camera group first."""
+    return [{"id": e["id"], "name": e["name"], "group": e.get("group", "")} for e in posters.pick(record, count)]
 
 
 def _basic_status(timeline, record: dict) -> dict:
