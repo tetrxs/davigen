@@ -466,7 +466,12 @@ tested there unless it says *untested*.
   keyframes nodes 01 and 02 only. A node whose tracks keep only their base entry has no keyframes, and `SetCDL`
   on it after the grade file is exact.
 - On the MARSEILLE timeline, frames rendered by Resolve from `DAVIGEN_AUTO` match davigen's simulation (ffmpeg
-  decode, input LUT, nodes, output LUT) within 0.3–0.5 % of display for constant clips.
+  decode, input LUT, nodes, output LUT) within 0.3–0.5 % of display for constant clips, pixel by pixel.
+- **Full run, 2026-09-29, MARSEILLE_2026 (57 clips, 35 min):** 3 min 50 s with the samples cached, 2,606 extra
+  frames measured around changes, 24 clips keyframed, 23 markers. *Compare with my grade* (one render job at a
+  time, distributions compared): simulator vs Resolve median 1.35 % for constant clips and 1.37 % for keyframed
+  ones, so keyframed clips are as predictable. The one outlier (8.7 %) is a clip whose own version has other
+  nodes than davigen's structure; it got constant values, as designed.
 - **Keyframes stay:** a grade file without keyframes (`ApplyGradeFromDRX`, any mode) leaves existing keyframes in
   place, and `SetCDL` then writes into only one of them. What does work: `LoadVersionByName(user)`,
   `DeleteVersionByName("DAVIGEN_AUTO")`, `AddVersion("DAVIGEN_AUTO")` gives a clean copy of the user's version.
