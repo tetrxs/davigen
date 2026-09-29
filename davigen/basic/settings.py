@@ -69,12 +69,16 @@ DEFAULTS: dict = {
     "look": {"brightness": "even", "contrast": "medium", "warmth": "neutral", "saturation": "natural"},
     "looks": {
         "brightness": {
-            "even": {"label": "Even", "headroom_weight": 0.2, "headroom_max": 0.4, "pull_to_project": 0.5,
+            "darker": {"label": "Darker", "exposure_offset": -0.33, "headroom_weight": 0.2, "headroom_max": 0.4,
+                       "pull_to_project": 0.5,
+                       "about": "A third of a stop under the even level: moodier, richer colours in bright scenes."},
+            "even": {"label": "Even", "exposure_offset": 0.0, "headroom_weight": 0.2, "headroom_max": 0.4,
+                     "pull_to_project": 0.5,
                      "about": "Every shot at the same picture brightness, whatever the camera did: what an editor "
                               "wants to cut. Night, dusk, silhouettes and snow keep their character."},
-            "natural": {"label": "Natural", "headroom_weight": 0.64, "headroom_max": 1.0, "pull_to_project": 0.2,
-                        "about": "As photo retouchers do it (MIT-Adobe FiveK): a bright, flat scene stays brighter, "
-                                 "a backlit one darker. More mood, less even."},
+            "brighter": {"label": "Brighter", "exposure_offset": 0.33, "headroom_weight": 0.2, "headroom_max": 0.4,
+                         "pull_to_project": 0.5,
+                         "about": "A third of a stop over: light and airy, for summer, beach and lifestyle."},
         },
         "contrast": {
             "soft": {"label": "Soft", "black_shift": 0.02, "spread_shift": -0.06, "white_shift": -0.02,
@@ -86,12 +90,11 @@ DEFAULTS: dict = {
                        "about": "Deep blacks and punchy mids: action, sport, a cinematic look."},
         },
         "warmth": {
-            "cool": {"label": "Cool", "kelvin": 600, "about": "Crisp and modern: winter, cities, blue hour."},
+            "cool": {"label": "Cool", "kelvin": 500, "about": "Crisp and modern: winter, cities, blue hour."},
             "neutral": {"label": "Neutral", "kelvin": 0, "about": "White is white. The safe start, and what "
                                                                   "matching several cameras needs."},
-            "slightly_warm": {"label": "Slightly warm", "kelvin": -300,
-                              "about": "The classic travel and summer feel; skin looks healthy."},
-            "warm": {"label": "Warm", "kelvin": -700, "about": "Golden hour, nostalgic, Mediterranean."},
+            "warm": {"label": "Warm", "kelvin": -450,
+                     "about": "The classic travel and summer feel: golden light, healthy skin."},
         },
         "saturation": {
             "muted": {"label": "Muted", "chroma_scale": 0.85, "about": "Calm and filmic."},
@@ -132,6 +135,7 @@ def apply_look(s: dict, look: dict) -> dict:
         chosen[dim] = name
     b = s["looks"]["brightness"][chosen["brightness"]]
     s["exposure"]["headroom_weight"], s["exposure"]["headroom_max"] = b["headroom_weight"], b["headroom_max"]
+    s["exposure"]["look_offset"] = b["exposure_offset"]
     s["scenes"]["pull_to_project"] = b["pull_to_project"]
     k = s["looks"]["contrast"][chosen["contrast"]]
     co = s["contrast"]

@@ -189,6 +189,7 @@ def _exposure(m: ms.Measurement, sim: _Sim, settings: dict, values: dict):
     if m.exposure_spread > fl["exposure_spread"]:
         confidence -= conf["changes"]
     stops += settings.get("learned", {}).get("exposure", 0.0)      # the user's taste (concept §13)
+    stops += ex.get("look_offset", 0.0)                            # the project's look (concept §15)
     # log footage exposed to the right can come down a long way; lifting underexposure lifts noise
     limited = not (-ex["max_stops_down"] <= stops <= ex["max_stops_up"])
     stops = max(-ex["max_stops_down"], min(ex["max_stops_up"], stops))

@@ -132,3 +132,22 @@ def test_tunnel_exit_is_keyframed(luts, tmp_path):
     assert "DeleteVersionByName" in item.calls and not item.versions[write.AUTO].get("keyframes")
     assert item.versions[write.AUTO]["cdl"] and "SetCDL into keyframes" not in item.calls
     assert item.versions["Version 1"].get("keyframes") is None and item.current == write.AUTO
+
+
+def test_reset_removes_davigen_auto_only(luts, tmp_path):
+    resolve, proj, tl, items = setup(luts)
+    run.basic_correction(resolve, Config(), Reporter(run.STEPS), base=tmp_path)
+    assert any(write.AUTO in i.versions for i in items)
+    user_before = {i.uid: dict(i.versions["Version 1"]) for i in items}
+    rep = Reporter(run.RESET_STEPS)
+    import davigen.creator as creator
+    old = creator.project_base
+    creator.project_base = lambda p: tmp_path
+    try:
+        run.reset_flow(resolve, Config(), {}, rep)
+    finally:
+        creator.project_base = old
+    assert all(write.AUTO not in i.versions and i.current == "Version 1" for i in items)
+    assert all(i.versions["Version 1"] == user_before[i.uid] for i in items)       # the user's grade untouched
+    assert not any(m["customData"] == write.MARKER_DATA for i in items for m in i.markers.values())
+    assert rep.result["removed"] == 2

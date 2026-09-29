@@ -585,10 +585,15 @@ saves them with the project (`00_ADMIN/PROJECT_INFO/basic_correction/look.json`)
 
 | Dimension | Options | What changes |
 |---|---|---|
-| Brightness | **Even** (default), Natural | Even: the highlight target (§5.1) only a little (weight 0.2, ±0.4 stop) and every shot pulled half way to the whole timeline's picture brightness and colourfulness – what an editor wants to cut. Night, dusk, silhouettes and snow keep theirs. Natural: the FiveK experts' placement (weight 0.64, ±1 stop): more mood, less even. |
+| Brightness | Darker, **Even** (default), Brighter | every shot pulled half way to the whole timeline's picture brightness and colourfulness (night, dusk, silhouettes and snow keep theirs), the highlight target of §5.1 only a little (weight 0.2, ±0.4 stop); Darker / Brighter shift it all by ∓⅓ stop |
 | Contrast | Soft, **Medium** (default), Strong | the black and spread targets of §5.3 and the white target move together |
-| Colour temperature | Cool, **Neutral** (default), Slightly warm, Warm | the white every light is balanced to, by +600 / 0 / −300 / −700 K |
+| Colour temperature | Cool, **Neutral** (default), Warm | the white every light is balanced to, by +500 / 0 / −450 K |
 | Saturation | Muted, **Natural** (default), Rich | the chroma target × 0.85 / 1 / 1.15 |
+
+Three choices each, so the setup is a quick decision per project. **Run Basic correction with this look** starts it
+right away. **Remove DAVIGEN_AUTO** (on the home screen) takes every clip of the current timeline back to the
+user's own version and deletes DAVIGEN_AUTO and davigen's markers, for a fresh start; the user's versions are
+never changed.
 
 The texts next to the pictures say what each is typically used for. On MARSEILLE_2026 the user chose Even and
 Medium; the drone shot over the sea that looked heavy was not too contrasty but a stop too dark – sun glints on

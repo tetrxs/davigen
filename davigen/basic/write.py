@@ -205,6 +205,22 @@ def _write_keyframes(item, kf: Keyframes, folder: Path, out: Outcome) -> bool:
     return True
 
 
+def remove_auto(item, user_version: str = "") -> str:
+    """Back to the user's version and DAVIGEN_AUTO deleted. Returns '' or why not. The user's own versions are
+    never touched."""
+    names = item.GetVersionNameList(0) or []
+    if AUTO not in names:
+        return ""
+    back = user_version if user_version in names and user_version != AUTO else next((n for n in names if n != AUTO), "")
+    if not back:
+        return f"{AUTO} is the clip's only version – left as it is"
+    if not (item.LoadVersionByName(back, 0) and _version_name(item) == back):
+        return f"Resolve didn't switch to {back}"
+    if not item.DeleteVersionByName(AUTO, 0):
+        return f"Resolve didn't delete {AUTO}"
+    return ""
+
+
 # ------------------------------------------------------------------------------------------------ markers
 
 def clear_markers(items) -> None:

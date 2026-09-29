@@ -181,6 +181,10 @@ class App:
                 return {"ok": False, "error": "No music chosen"}
         return self._start(edit.STEPS, edit.flow, {"music": music, "transcribe": bool(body.get("transcribe"))})
 
+    def start_basic_reset(self, body: dict) -> dict:
+        from .basic import run as basic  # noqa: PLC0415
+        return self._start(basic.RESET_STEPS, basic.reset_flow, {"timeline": body.get("timeline", "")})
+
     def start_evaluate(self, body: dict) -> dict:
         from .basic import run as basic  # noqa: PLC0415
         return self._start(basic.EVALUATE_STEPS, basic.evaluate_flow, {"user_version": body.get("user_version", "")})
@@ -472,6 +476,7 @@ def make_handler(app: App):
         "/api/edit": app.start_edit,
         "/api/basic/learn": app.basic_learn,
         "/api/basic/look": app.basic_look_save,
+        "/api/basic/reset": app.start_basic_reset,
         "/api/open-project": app.open_project,
         "/api/reveal": app.reveal,
         "/api/vendor-lut": app.vendor_lut,

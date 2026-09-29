@@ -388,6 +388,42 @@ def flow(resolve, cfg: Config, options: dict, rep) -> None:
                      recompute=bool(options.get("recompute")), timeline_name=options.get("timeline", ""))
 
 
+RESET_STEPS = [("reset", "Back to your versions"), ("save", "Save")]
+
+
+def reset_flow(resolve, cfg: Config, options: dict, rep) -> None:
+    """Remove DAVIGEN_AUTO and davigen's markers from every clip of a timeline (options: {timeline}); each clip
+    goes back to the user's version, which is never changed. The last report stays as a record."""
+    from ..creator import project_base  # noqa: PLC0415
+    proj = resolve.GetProjectManager().GetCurrentProject()
+    if proj is None:
+        raise ResolveError("No project is open")
+    name = options.get("timeline", "")
+    timeline = find_timeline(proj, name) if name else proj.GetCurrentTimeline()
+    if timeline is None:
+        raise ResolveError(f"Timeline {name or '(current)'} not found")
+    rep.start("reset", timeline.GetName())
+    record = write.load_record(project_base(proj), timeline.GetName())
+    users = {e["id"]: (e.get("outcome") or {}).get("user_version", "") for e in record.get("items", [])}
+    items = _video_items(timeline)
+    write.clear_markers(items)
+    removed, problems = 0, []
+    for n, ti in enumerate(items, 1):
+        rep.detail("reset", f"{n}/{len(items)} · {ti.GetName()}")
+        had = write.AUTO in (ti.GetVersionNameList(0) or [])
+        why = write.remove_auto(ti, users.get(ti.GetUniqueId() if hasattr(ti, "GetUniqueId") else "", ""))
+        if why:
+            problems.append(f"{ti.GetName()}: {why}")
+        elif had:
+            removed += 1
+    rep.warn(problems)
+    rep.finish("reset", f"{write.AUTO} removed from {removed} clips, davigen's markers cleared")
+    rep.start("save")
+    resolve.GetProjectManager().SaveProject()
+    rep.finish("save")
+    rep.result = {"removed": removed, "timeline": timeline.GetName()}
+
+
 EVALUATE_STEPS = [("render", "Render your version and DAVIGEN_AUTO"), ("score", "Compare"), ("save", "Save")]
 
 

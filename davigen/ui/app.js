@@ -191,6 +191,7 @@ function renderCurrent(c) {
         <button class="secondary" id="m-look" title="Brightness, contrast, warmth and saturation for this project, with example pictures">Look…</button>
         <button class="link" id="m-basic-report">Last report</button>
         <button class="link" id="m-basic-eval" title="Render your own version and DAVIGEN_AUTO at the same frames and measure how far apart they are">Compare with my grade</button>
+        <button class="link" id="m-basic-reset" title="Delete DAVIGEN_AUTO and davigen's markers on every clip of the current timeline; each clip goes back to your own version">Remove DAVIGEN_AUTO</button>
       </div>
     </div>
     <div class="basic">
@@ -207,7 +208,7 @@ function renderCurrent(c) {
 }
 
 function startBasic(options = {}) {
-  if (options.recompute && !confirm("Recompute all: existing DAVIGEN_AUTO versions are overwritten, including anything you changed inside them. Continue?")) return;
+  if (options.recompute && !options.confirmed && !confirm("Recompute all: existing DAVIGEN_AUTO versions are overwritten, including anything you changed inside them. Continue?")) return;
   basicRun = true;
   runFlow("/api/basic", options.dry_run ? "Basic correction · dry run" : "Basic correction", options);
 }
@@ -225,6 +226,10 @@ $("#current").addEventListener("click", async (e) => {
   if (e.target.closest("#m-basic")) return startBasic({ dry_run: $("#b-dry").checked, recompute: $("#b-re").checked });
   if (e.target.closest("#m-basic-report")) return showBasicReport();
   if (e.target.closest("#m-look")) return showLook();
+  if (e.target.closest("#m-basic-reset")) {
+    if (!confirm("Remove DAVIGEN_AUTO from every clip of the current timeline? Each clip goes back to your own version, which stays as it is. davigen's markers are removed too.")) return;
+    return runFlow("/api/basic/reset", "Removing DAVIGEN_AUTO", {});
+  }
   if (e.target.closest("#m-selects")) return runFlow("/api/edit", "Edit assist · selects", { transcribe: $("#e-transcribe").checked });
   if (e.target.closest("#m-roughcut")) return runFlow("/api/edit", "Edit assist · rough cut", { pick_music: true, transcribe: $("#e-transcribe").checked });
   if (e.target.closest("#m-basic-eval")) { evalRun = true; return runFlow("/api/basic/evaluate", "Basic correction vs your grade", {}); }
@@ -973,6 +978,7 @@ function renderLook() {
 }
 document.addEventListener("click", async (e) => {
   if (e.target.closest("#look-back")) return show("home");
+  if (e.target.closest("#look-run")) return startBasic({ recompute: true, confirmed: true });
   const sample = e.target.closest("[data-sample]");
   if (sample) { lookState.sample = sample.dataset.sample; return renderLook(); }
   const opt = e.target.closest(".look-opt");

@@ -56,10 +56,11 @@ def test_looks_change_the_targets():
     base = settings.load(None, learned=False)
     assert base["look_applied"] == {"brightness": "even", "contrast": "medium", "warmth": "neutral", "saturation": "natural"}
     soft = settings.load(None, learned=False, look={"contrast": "soft", "warmth": "warm", "saturation": "rich",
-                                                    "brightness": "natural"})
+                                                    "brightness": "brighter"})
     assert soft["contrast"]["black_by_range"][0][1] > base["contrast"]["black_by_range"][0][1]
     assert soft["contrast"]["spread_by_range"][0][1] < base["contrast"]["spread_by_range"][0][1]
     assert soft["white_balance"]["look_kelvin"] < 0 and soft["saturation"]["chroma"][0] > base["saturation"]["chroma"][0]
-    assert soft["exposure"]["headroom_weight"] > base["exposure"]["headroom_weight"]
+    assert soft["exposure"]["look_offset"] > base["exposure"]["look_offset"] == 0.0
+    assert all(len(opts) == 3 for opts in base["looks"].values())            # three choices each
     odd = settings.load(None, learned=False, look={"contrast": "nonsense"})
     assert odd["look_applied"]["contrast"] == "medium"

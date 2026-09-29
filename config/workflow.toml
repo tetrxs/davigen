@@ -327,19 +327,29 @@ contrast = "medium"
 warmth = "neutral"
 saturation = "natural"
 
-[basic_correction.looks.brightness.even]
-label = "Even"
-headroom_weight = 0.2               # the highlight target (exposure) only a little …
+[basic_correction.looks.brightness.darker]
+label = "Darker"
+exposure_offset = -0.33             # stops, on top of the even level
+headroom_weight = 0.2               # the highlight target (exposure.headroom_*) only a little …
 headroom_max = 0.4
 pull_to_project = 0.5               # … and every shot pulled half way to the whole timeline's brightness
+about = "A third of a stop under the even level: moodier, richer colours in bright scenes."
+
+[basic_correction.looks.brightness.even]
+label = "Even"
+exposure_offset = 0.0
+headroom_weight = 0.2
+headroom_max = 0.4
+pull_to_project = 0.5
 about = "Every shot at the same picture brightness, whatever the camera did: what an editor wants to cut. Night, dusk, silhouettes and snow keep their character."
 
-[basic_correction.looks.brightness.natural]
-label = "Natural"
-headroom_weight = 0.64              # as the FiveK experts (exposure.headroom_*)
-headroom_max = 1.0
-pull_to_project = 0.2
-about = "As photo retouchers do it (MIT-Adobe FiveK): a bright, flat scene stays brighter, a backlit one darker. More mood, less even."
+[basic_correction.looks.brightness.brighter]
+label = "Brighter"
+exposure_offset = 0.33
+headroom_weight = 0.2
+headroom_max = 0.4
+pull_to_project = 0.5
+about = "A third of a stop over: light and airy, for summer, beach and lifestyle."
 
 [basic_correction.looks.contrast.soft]
 label = "Soft"
@@ -364,7 +374,7 @@ about = "Deep blacks and punchy mids: action, sport, a cinematic look."
 
 [basic_correction.looks.warmth.cool]
 label = "Cool"
-kelvin = 600                        # added to the white every light is balanced to (lower: warmer picture)
+kelvin = 500                        # added to the white every light is balanced to (lower: warmer picture)
 about = "Crisp and modern: winter, cities, blue hour."
 
 [basic_correction.looks.warmth.neutral]
@@ -372,15 +382,10 @@ label = "Neutral"
 kelvin = 0
 about = "White is white. The safe start, and what matching several cameras needs."
 
-[basic_correction.looks.warmth.slightly_warm]
-label = "Slightly warm"
-kelvin = -300
-about = "The classic travel and summer feel; skin looks healthy."
-
 [basic_correction.looks.warmth.warm]
 label = "Warm"
-kelvin = -700
-about = "Golden hour, nostalgic, Mediterranean."
+kelvin = -450
+about = "The classic travel and summer feel: golden light, healthy skin."
 
 [basic_correction.looks.saturation.muted]
 label = "Muted"
