@@ -61,9 +61,10 @@ def test_saturation_mixes_with_resolve_luma():
     assert np.allclose(2 * half - img, (img @ p.SAT_LUMA)[:, None])   # the relation the spike measured
 
 
-def test_power_clamps_below_zero():
+def test_power_keeps_the_sign_below_zero():
+    """As Resolve does it (measured on a ramp): −|v|^p, not the ASC clamp to 0."""
     out = p.apply_cdl(np.array([-0.1, 0.25, 0.5]), p.Cdl(power=(2.0, 2.0, 2.0)))
-    assert np.allclose(out, [0.0, 0.0625, 0.25])
+    assert np.allclose(out, [-0.01, 0.0625, 0.25])
 
 
 def test_white_balance_offsets():

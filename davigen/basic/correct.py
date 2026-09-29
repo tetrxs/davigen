@@ -368,7 +368,7 @@ def _contrast(m: ms.Measurement, sim: _Sim, before: list, settings: dict, values
     def stats(k, g, pw):
         node = contrast_node(k, g, pw)
         o = node.offset[0]
-        ys = [np.interp(np.maximum(k * v + o, 0.0) ** pw, grid, curve) for v in ls]
+        ys = [np.interp(np.sign(k * v + o) * np.abs(k * v + o) ** pw, grid, curve) for v in ls]
         each = [tone_stats(y) for y in ys if len(y)]
         return {key: float(np.median([e[key] for e in each])) for key in each[0]} if each else start
 

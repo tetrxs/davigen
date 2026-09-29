@@ -98,7 +98,8 @@ def apply_cdl(image, cdl: Cdl):
     """ASC CDL as Resolve applies it: slope, offset, power per channel, then saturation."""
     out = np.asarray(image, dtype="float64") * np.asarray(cdl.slope) + np.asarray(cdl.offset)
     if cdl.power != (1.0, 1.0, 1.0):
-        out = np.maximum(out, 0.0) ** np.asarray(cdl.power)       # power is undefined below 0 (ASC clamps)
+        # Resolve keeps the sign below 0 (−|v|^p, measured on a ramp, concept §12); ASC would clamp to 0
+        out = np.sign(out) * np.abs(out) ** np.asarray(cdl.power)
     if cdl.sat != 1.0:
         luma = (out @ SAT_LUMA)[..., None]
         out = luma + cdl.sat * (out - luma)

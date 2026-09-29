@@ -466,6 +466,10 @@ tested there unless it says *untested*.
   c ≤ 1, and an S-curve above 1 that also couples the channels (up to 0.6 off on a coloured ramp at c = 2). The
   default pivot is 0.435. Gain, Master Gain and Lift act luminance-preserving (YRGB) and aren't a per-channel
   multiply either; Offset is exact.
+- `SetCDL`'s Power is exact ASC CDL above 0 (power 0.8–1.5 with slope and offset: 0.00000 on the ramp), but
+  keeps the sign below 0: −|v|^p where ASC clamps to 0. It shows only when a later node lifts those values again
+  (node 04 below); the simulator does the same since 2026-09-29, and a keyframed clip whose simulation had been
+  4 % off then matched within 0.3 %.
 - So a contrast that changes over time is written in two nodes: node 03 holds the clip's highest contrast × 1.05
   as a constant CDL (`SetCDL`, exact; a node whose tracks keep only their base entry has no keyframes and takes
   `SetCDL` exactly after the grade file), node 04 takes the rest back per keyframe with a Contrast ≤ 1 around a
