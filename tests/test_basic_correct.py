@@ -95,8 +95,12 @@ def test_contrast_keeps_grey_and_stays_in_range(out_lut):
     punchy = 0.18 * 2 ** rng.normal(0, 3.0, (8, 12, 1)) * np.ones(3)
     for scene in (np.kron(flat, np.ones((8, 8, 1))), np.kron(punchy, np.ones((8, 8, 1)))):
         _, corr = run([scene], out_lut)
-        cdl = corr.nodes[c.CONTRAST]
-        assert np.allclose(p.apply_cdl(np.full(3, p.GREY), cdl), p.GREY)
+        cdl, v = corr.nodes[c.CONTRAST], corr.values
+        grey_after = p.apply_cdl(np.full(3, p.GREY), cdl)
+        # grey stays, unless the whites hold the curve back: then the mids may drop, at most max_grey_shift
+        assert np.allclose(grey_after, p.GREY + v["grey_shift_stops"] * p.STOP, atol=1e-6)
+        assert -S["contrast"]["max_grey_shift"] - 1e-9 <= v["grey_shift_stops"] <= 0.0
+        assert v["grey_shift_stops"] == 0.0 or v["white_before"] >= S["contrast"]["white_target"]
         assert S["contrast"]["range"][0] <= cdl.slope[0] <= S["contrast"]["range"][1]
 
 
