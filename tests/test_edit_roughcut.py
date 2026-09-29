@@ -83,3 +83,30 @@ def test_jump_cuts_are_broken_up():
         if ids[i] == ids[i - 1]:
             assert set(ids[i:]) == {ids[i]}
     assert ids[0] == "c0"                                                            # the story still starts there
+
+
+def test_short_cut_takes_the_energetic_part_on_whole_bars():
+    m = song(seconds=64.0, calm_until=32.0)
+    a, b = rc.music_window(m, 20)
+    assert a >= 31.0 and a in m.downbeats                 # the loud half, from a bar
+    assert b - a == pytest.approx(20, abs=4)
+    part = rc.cut_music(m, a, b)
+    assert part.duration == pytest.approx(b - a) and part.beats[0] >= 0 and part.beats[-1] < part.duration
+    assert rc.music_window(m, 0) == (0.0, m.duration)
+
+
+def test_short_cut_uses_each_clip_once_and_fills_the_music():
+    clips = [clip(i, f"2026-09-25T10:{i:02d}:00Z", [(0.0, 40.0, 0.9 - i / 100)]) for i in range(20)]
+    m = song(seconds=64.0)
+    a, b = rc.music_window(m, 16)
+    shots = rc.plan(clips, rc.cut_music(m, a, b), rc.with_pace(CFG, "fast"))
+    ids = [s.clip_id for s in shots]
+    assert len(ids) == len(set(ids))
+    assert shots[-1].record_end == pytest.approx(b - a, abs=0.01)
+
+
+def test_short_stretches_still_fill_a_calm_song():
+    clips = [clip(i, f"2026-09-25T10:{i:02d}:00Z", [(0.0, 3.5, 0.8), (10.0, 13.5, 0.7)]) for i in range(30)]
+    m = song(seconds=64.0)
+    shots = rc.plan(clips, m, rc.with_pace(CFG, "calm"))
+    assert shots[-1].record_end == pytest.approx(m.duration, abs=0.6)     # up to the last whole beat

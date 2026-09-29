@@ -123,8 +123,9 @@ def selects_timeline(project, name: str, bin_path: str, picks: list[tuple], time
 
 
 def rough_cut_timeline(project, name: str, bin_path: str, shots: list[Shot], clips: dict, music_mpi,
-                       timeline_fps: float) -> tuple[object, list[str]]:
-    """Video of every shot on V1, back to back and frame-exact to the beat grid; the music on A1 from the start."""
+                       timeline_fps: float, music_start: float = 0.0) -> tuple[object, list[str]]:
+    """Video of every shot on V1, back to back and frame-exact to the beat grid; the music on A1 from the start
+    of the timeline – from `music_start` seconds into the song when the cut uses only part of it."""
     warnings = []
     tl = _new_timeline(project, name, bin_path)
     mp = project.GetMediaPool()
@@ -141,9 +142,10 @@ def rough_cut_timeline(project, name: str, bin_path: str, shots: list[Shot], cli
         raise ResolveError("Resolve didn't put the shots on the timeline")
     if music_mpi is not None and shots:
         music_fps = clip_fps(music_mpi, timeline_fps)
-        end = int(round(shots[-1].record_end * music_fps)) if music_fps else 0
+        first = int(round(music_start * music_fps))
+        end = first + int(round(shots[-1].record_end * music_fps))
         start_frame = int(tl.GetStartFrame()) if hasattr(tl, "GetStartFrame") else 0
-        placed = mp.AppendToTimeline([{"mediaPoolItem": music_mpi, "startFrame": 0, "endFrame": max(1, end),
+        placed = mp.AppendToTimeline([{"mediaPoolItem": music_mpi, "startFrame": first, "endFrame": max(first + 1, end),
                                        "mediaType": 2, "trackIndex": 1, "recordFrame": start_frame}])
         if not placed:
             warnings.append("Resolve didn't place the music – drag it from 04_AUDIO/MUSIC onto A1")

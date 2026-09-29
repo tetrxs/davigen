@@ -38,7 +38,7 @@ def _created(mpi) -> str:
 
 
 def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | None = None,
-                transcribe_speech: bool = False) -> dict:
+                transcribe_speech: bool = False, music_seconds: float = 0.0, pace: str = "auto") -> dict:
     from ..creator import project_base, project_format  # noqa: PLC0415 - creator is heavy; only when used
     if not decode.available():
         raise ResolveError("Edit Assist needs ffmpeg to watch the clips – install it with 'brew install ffmpeg'")
@@ -113,18 +113,20 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     fmt = project_format(cfg, proj, base)
     stem = f"TL_00_SELECTS_AUTO_{fmt.aspect_token}_{fmt.fps_token}"
     st = s["selects_timeline"]
-    picks = []
+    picks, chosen = [], []
     for plan in sorted(plans, key=lambda p: (p.created, p.order)):
         for seg in (x for x in plan.segments if x.kind == sel.GOOD and x.rating >= st["min_rating"]):
             a, b = sel.calmest_window(plan.watch, seg, min(seg.length, st["max_seconds"]))
             picks.append((clips[int(plan.id)], a, b))
+            chosen.append({"clip": plan.id, "name": plan.name, "start": round(a, 2), "end": round(b, 2),
+                           "rating": round(seg.rating, 3)})
     name = apply.next_name(proj, stem)
     selects_tl = apply.selects_timeline(proj, name, "03_TIMELINES/01_ASSEMBLY", picks, tl_fps) if picks else None
     rep.finish("timeline", f"{name}: {len(picks)} stretches, {sum(b - a for _, a, b in picks) / 60:.1f} min"
                if picks else "no good stretches", state="done" if picks else "skipped")
 
     # ----------------------------------------------------------------------------------- music + cut
-    result = {"selects_timeline": name if picks else "", "rough_cut": "", "music": None}
+    result = {"selects_timeline": name if picks else "", "selects": chosen, "rough_cut": "", "music": None}
     if music_path:
         rep.start("music", Path(music_path).name)
         samples = decode.audio(music_path, music_mod.RATE)
@@ -138,16 +140,21 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
         music_mpi = existing[0] if existing else (mp.ImportMedia([music_path]) or [None])[0]
         if music_mpi is not None:
             apply.mark_music(music_mpi, track, apply.clip_fps(music_mpi, tl_fps))
-        rep.finish("music", f"{track.tempo:.0f} BPM · {len(track.downbeats)} bars · {len(track.sections)} sections")
+        a, b = roughcut.music_window(track, music_seconds)
+        part = roughcut.cut_music(track, a, b) if (a, b) != (0.0, track.duration) else track
+        rep.finish("music", f"{track.tempo:.0f} BPM · {len(track.downbeats)} bars · {len(track.sections)} sections"
+                   + (f" · using {a:.0f}–{b:.0f} s" if part is not track else ""))
         rep.start("roughcut")
-        shots = roughcut.plan(plans, track, s["rough_cut"])
+        shots = roughcut.plan(plans, part, roughcut.with_pace(s["rough_cut"], pace))
         cut_name = apply.next_name(proj, f"TL_02_EDIT_AUTO_{fmt.aspect_token}_{fmt.fps_token}")
         tl, warns = apply.rough_cut_timeline(proj, cut_name, "03_TIMELINES/02_EDIT", shots,
-                                             {p.id: clips[int(p.id)] for p in plans}, music_mpi, tl_fps)
+                                             {p.id: clips[int(p.id)] for p in plans}, music_mpi, tl_fps, a)
         rep.warn(warns)
         length = shots[-1].record_end if shots else 0
-        rep.finish("roughcut", f"{cut_name}: {len(shots)} shots, {length:.0f} s of {track.duration:.0f} s music")
-        result.update(rough_cut=cut_name, music=track.to_dict(), shots=[x.to_dict() for x in shots])
+        rep.finish("roughcut", f"{cut_name}: {len(shots)} shots, {length:.0f} s"
+                   + (f" ({pace} pace)" if pace != "auto" else ""))
+        result.update(rough_cut=cut_name, music=track.to_dict(), music_file=music_path, music_window=[a, b],
+                      pace=pace, shots=[x.to_dict() for x in shots])
         if tl is not None:
             proj.SetCurrentTimeline(tl)
     else:
@@ -159,8 +166,10 @@ def edit_assist(resolve, cfg: Config, rep, music_path: str = "", base: Path | No
     # ------------------------------------------------------------------------------------------- save
     rep.start("save")
     record = {"date": datetime.now().isoformat(timespec="seconds"), "settings": s, **result,
-              "clips": [{"name": p.name, "created": p.created, "segments": [x.to_dict() for x in p.segments]}
-                        for p in plans]}
+              "clips": [{"id": p.id, "name": p.name, "created": p.created,
+                         "path": clips[int(p.id)].GetClipProperty("File Path"),
+                         "duration": round(p.watch.duration, 2) if p.watch is not None else 0,
+                         "segments": [x.to_dict() for x in p.segments]} for p in plans]}
     target = base / "00_ADMIN" / "PROJECT_INFO" / "edit_assist.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(record, indent=1, default=str), encoding="utf-8")
@@ -234,5 +243,6 @@ def media_pool_folder_clips(mp, path: str) -> list:
 
 def flow(resolve, cfg: Config, options: dict, rep) -> None:
     edit_assist(resolve, cfg, rep, music_path=options.get("music", ""),
-                transcribe_speech=bool(options.get("transcribe")))
+                transcribe_speech=bool(options.get("transcribe")),
+                music_seconds=float(options.get("seconds") or 0), pace=options.get("pace") or "auto")
 

@@ -28,7 +28,7 @@ from .resolve_api import capabilities, find_project, version
 UI_DIR = Path(__file__).resolve().parent / "ui"
 # Resolve's scripting API isn't thread-safe: requests that talk to Resolve run one at a time.
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
-RESOLVE_ROUTES = {"/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
+RESOLVE_ROUTES = {"/api/edit/last", "/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
                   "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn",
                   "/api/basic/clip", "/api/basic/look"}
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
@@ -53,6 +53,8 @@ class App:
         self._render_lock = threading.Lock()
         self._render_gen = 0
         self._pictures: dict[tuple, bytes] = {}
+        self._songs: dict[tuple, dict] = {}
+        self._edit_paths: set[str] = set()
 
     # ------------------------------------------------------------------ app info
     def info(self) -> dict:
@@ -188,15 +190,80 @@ class App:
         if not decode.available():
             return {"ok": False, "error": "Edit Assist needs ffmpeg: install it with 'brew install ffmpeg' "
                                           "(https://brew.sh), then try again"}
-        music = ""
-        if body.get("pick_music"):
+        music = body.get("music") or ""
+        if music and not _is_audio(music):
+            return {"ok": False, "error": "That music file can't be read"}
+        if body.get("pick_music") and not music:
             res = subprocess.run(["osascript", "-e", 'POSIX path of (choose file with prompt "Music for the rough '
                                   'cut" of type {"public.audio"})'], capture_output=True, text=True,
                                  encoding="utf-8", errors="replace")
             music = res.stdout.strip()
             if res.returncode != 0 or not music:
                 return {"ok": False, "error": "No music chosen"}
-        return self._start(edit.STEPS, edit.flow, {"music": music, "transcribe": bool(body.get("transcribe"))})
+        return self._start(edit.STEPS, edit.flow, {"music": music, "transcribe": bool(body.get("transcribe")),
+                                                   "seconds": float(body.get("seconds") or 0),
+                                                   "pace": body.get("pace") if body.get("pace") in
+                                                   ("calm", "auto", "fast") else "auto"})
+
+    # ------------------------------------------------------------------ edit assist: music and results
+    def pick_music(self, body: dict) -> dict:
+        res = subprocess.run(["osascript", "-e", 'POSIX path of (choose file with prompt "Music for the rough cut" '
+                              'of type {"public.audio"})'], capture_output=True, text=True, encoding="utf-8",
+                             errors="replace")
+        path = res.stdout.strip()
+        return {"path": path, "name": Path(path).name} if res.returncode == 0 and path else {"path": ""}
+
+    def music_info(self, q: dict) -> dict:
+        """Tempo, bars, sections and a small waveform of a song, and which part a 30/60/90 s cut would use."""
+        from .edit import decode, music as music_mod, roughcut  # noqa: PLC0415
+        path = (q.get("path") or [""])[0]
+        if not _is_audio(path):
+            return {"ok": False, "error": "That music file can't be read"}
+        key = (path, Path(path).stat().st_mtime)
+        if key not in self._songs:
+            samples = decode.audio(path, music_mod.RATE)
+            if len(samples) < music_mod.RATE * 5:
+                return {"ok": False, "error": "No usable audio in that file"}
+            track = music_mod.analyse(samples)
+            bins = 240
+            chunk = max(1, len(samples) // bins)
+            rms = [float((samples[i * chunk:(i + 1) * chunk] ** 2).mean() ** 0.5) for i in range(bins)]
+            top = max(rms) or 1.0
+            self._songs = {key: {"ok": True, "name": Path(path).name, "path": path, "duration": track.duration,
+                                 "tempo": track.tempo, "bars": len(track.downbeats), "sections": track.sections,
+                                 "wave": [round(r / top, 3) for r in rms],
+                                 "windows": {str(s): roughcut.music_window(track, s) for s in (30, 60, 90)}}}
+        return self._songs[key]
+
+    def edit_last(self, q: dict) -> dict:
+        """The last Edit Assist run of the open project, for the results view."""
+        proj = self.resolve.GetProjectManager().GetCurrentProject()
+        try:
+            base = creator.project_base(proj)
+        except Exception:  # noqa: BLE001
+            return {"ok": False}
+        target = base / "00_ADMIN" / "PROJECT_INFO" / "edit_assist.json"
+        if not target.exists():
+            return {"ok": False}
+        rec = json.loads(target.read_text(encoding="utf-8"))
+        self._edit_paths = {c.get("path") for c in rec.get("clips", []) if c.get("path")}
+        music = rec.get("music") or {}
+        return {"ok": True, "date": rec.get("date", ""), "selects_timeline": rec.get("selects_timeline", ""),
+                "rough_cut": rec.get("rough_cut", ""), "music_file": rec.get("music_file", ""),
+                "music": {k: music.get(k) for k in ("duration", "tempo", "sections")} if music else None,
+                "music_window": rec.get("music_window"), "pace": rec.get("pace", ""),
+                "shots": rec.get("shots", []), "selects": rec.get("selects", []),
+                "clips": [{k: c.get(k) for k in ("id", "name", "path", "duration", "segments")}
+                          for c in rec.get("clips", [])]}
+
+    def edit_frame(self, q: dict) -> bytes:
+        path = (q.get("path") or [""])[0]
+        if path not in self._edit_paths:
+            raise FileNotFoundError("not a clip of the last Edit Assist run")
+        with self.resolve_lock:
+            base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
+        width = min(max(int((q.get("w") or ["320"])[0] or 320), 96), 960)
+        return posters.clip_frame(base, path, float((q.get("s") or ["0"])[0] or 0), width)
 
     def start_basic_reset(self, body: dict) -> dict:
         from .basic import run as basic  # noqa: PLC0415
@@ -542,6 +609,8 @@ def make_handler(app: App):
         "/api/basic/look": app.basic_look,
         "/api/project/posters": app.project_posters,
         "/api/update": lambda q: app.updater.snapshot(),
+        "/api/edit/music": app.music_info,
+        "/api/edit/last": app.edit_last,
     }
     routes_post = {
         "/api/validate": app.validate,
@@ -568,6 +637,7 @@ def make_handler(app: App):
         "/api/catalog/refresh": app.catalog_refresh,
         "/api/cameras": app.add_camera,
         "/api/update/check": lambda b: app.updater.check(),
+        "/api/pick-music": app.pick_music,
         "/api/update/run": app.update_run,
         "/api/heartbeat": lambda b: {"ok": True},
         "/api/quit": lambda b: (app.stop.set(), {"ok": True})[1],
@@ -632,11 +702,12 @@ def make_handler(app: App):
                     return self._send(200, app.basic_look_preview(query), "image/png")
                 except Exception as e:  # noqa: BLE001
                     return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
-            if url.path in ("/project/poster.png", "/basic/thumb.png"):
+            if url.path in ("/project/poster.png", "/basic/thumb.png", "/edit/frame.png"):
                 query = parse_qs(url.query)
                 if (query.get("t") or [""])[0] != app.token:
                     return self._send(403, b"forbidden", "text/plain")
-                make = app.project_poster if url.path == "/project/poster.png" else app.basic_thumb
+                make = {"/project/poster.png": app.project_poster, "/basic/thumb.png": app.basic_thumb,
+                        "/edit/frame.png": app.edit_frame}[url.path]
                 try:
                     return self._send(200, make(query), "image/png")
                 except Exception as e:  # noqa: BLE001
@@ -673,6 +744,13 @@ def make_handler(app: App):
 
 
 _NOLOCK = contextlib.nullcontext()
+
+
+AUDIO_EXT = {".mp3", ".wav", ".aif", ".aiff", ".m4a", ".aac", ".flac", ".ogg", ".caf"}
+
+
+def _is_audio(path: str) -> bool:
+    return bool(path) and Path(path).suffix.lower() in AUDIO_EXT and Path(path).is_file()
 
 
 class Superseded(Exception):

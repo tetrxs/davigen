@@ -118,13 +118,13 @@ def poster(base: Path, index: int, width: int = 640) -> bytes:
     return png
 
 
-def _render(entry: dict, base: Path, width: int) -> bytes:
+def _render(entry: dict, base: Path, width: int, frame: int | None = None) -> bytes:
     import numpy as np  # noqa: PLC0415 - numpy only when a picture is made
     from .basic import pipeline as p, preview  # noqa: PLC0415
     frames = entry.get("frames") or []
-    if frames:
+    if frame is None and frames:
         frame = frames[len(frames) // 2]
-    else:                                           # a camera file: a few seconds in
+    elif frame is None:                             # a camera file: a few seconds in
         entry = {**entry, "clip_fps": 25.0}
         frame = 75
     log = preview._camera_frame(entry, frame, base / "03_WORK" / "ANALYSIS", width)
@@ -156,3 +156,46 @@ def thumb(entry: dict, base: Path) -> bytes:
             dwg = p.apply_nodes(dwg, preview.nodes_at(entry, frame))
         img = p.apply_lut(dwg, out_lut)
     return preview.png(np.clip(img, 0, 1))
+
+
+def _entry_for(base: Path, path: str) -> dict:
+    """What davigen knows to grade a camera file: its Basic correction entry, else its colour group's LUTs."""
+    for rec in records(base):
+        for e in load_record(rec).get("items", []):
+            if e.get("path") == path:
+                return e
+    media = next((m for m in _media(base, 10_000) if m["path"] == path), None)
+    return media or {"name": Path(path).stem, "path": path, "luts": ["", ""]}
+
+
+def clip_frame(base: Path, path: str, seconds: float, width: int = 320) -> bytes:
+    """PNG of a camera file at `seconds`, graded like DAVIGEN_AUTO when it has been corrected (Edit Assist's shots)."""
+    try:
+        stamp_src = f"{Path(path).stat().st_mtime}"
+    except OSError as e:
+        raise FileNotFoundError(path) from e
+    stamp = hashlib.sha1(f"{base}|{path}|{stamp_src}|{seconds:.2f}|{width}|{[str(r.stat().st_mtime) for r in records(base)]}"
+                         .encode()).hexdigest()[:16]
+    cached = CACHE / f"f_{stamp}.png"
+    if cached.exists():
+        return cached.read_bytes()
+    entry = _entry_for(base, path)
+    fps = float(entry.get("clip_fps") or 25.0)
+    frame = int(round(seconds * fps))
+    png = _from_cache(entry, base, frame) if width <= 200 else None
+    png = png or _render({**entry, "clip_fps": fps}, base, width, frame)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    cached.write_bytes(png)
+    return png
+
+
+def _from_cache(entry: dict, base: Path, frame: int) -> bytes | None:
+    """A small picture from Basic correction's analysis cache when it has a sample near the frame (no decoding)."""
+    from .basic import sampling  # noqa: PLC0415
+    if not entry.get("correction"):
+        return None
+    cached = sampling.Cache(base / "03_WORK" / "ANALYSIS").load(entry["path"])
+    near = min(cached, key=lambda f: abs(f - frame)) if cached else None
+    if near is None or abs(near - frame) > 3 * float(entry.get("clip_fps") or 25.0):
+        return None
+    return thumb({**entry, "frames": [near]}, base)
