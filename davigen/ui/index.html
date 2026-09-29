@@ -91,10 +91,11 @@
   <!-- FOOTAGE --------------------------------------------------------------- -->
   <section class="view" data-view="footage" hidden>
     <h1 id="footage-title">Footage</h1>
-    <p class="lead">Add card or folder paths. davigen reads camera, model and log profile from each file's metadata.</p>
+    <p class="lead">Add cards, folders or single clips. davigen reads camera, model and log profile from each file's metadata; clips already in the project are skipped.</p>
     <div class="panel list" id="sources"></div>
     <div class="row gap">
       <button class="secondary" id="add-source">Add folder…</button>
+      <button class="secondary" id="add-files">Add clips…</button>
       <button class="secondary" id="scan" disabled>Scan</button>
       <span class="muted" id="scan-text"></span>
     </div>

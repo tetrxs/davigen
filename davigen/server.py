@@ -98,6 +98,16 @@ class App:
                              errors="replace")
         return {"path": res.stdout.strip().rstrip("/") if res.returncode == 0 else ""}
 
+    def pick_files(self, body: dict) -> dict:
+        """Several video files at once (Finder's multiple selection)."""
+        prompt = body.get("prompt", "Choose clips").replace('"', "'")
+        script = (f'set fs to choose file with prompt "{prompt}" with multiple selections allowed\n'
+                  'set out to ""\nrepeat with f in fs\nset out to out & POSIX path of f & linefeed\nend repeat\n'
+                  'return out')
+        res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, encoding="utf-8",
+                             errors="replace")
+        return {"paths": [line for line in res.stdout.splitlines() if line.strip()] if res.returncode == 0 else []}
+
     # ------------------------------------------------------------------ scanning
     def start_scan(self, body: dict) -> dict:
         if self.scan_state["running"]:
@@ -240,7 +250,7 @@ class App:
         timeline = proj.GetCurrentTimeline()
         record = write.load_record(base, timeline.GetName()) if timeline else {}
         return {"look": s["look_applied"], "defaults": s["look"], "options": options,
-                "samples": _look_samples(record)}
+                "samples": _look_samples(record), "status": _basic_status(timeline, record)}
 
     def basic_look_save(self, body: dict) -> dict:
         from .basic import settings as basic_settings, write  # noqa: PLC0415
@@ -468,6 +478,7 @@ def make_handler(app: App):
         "/api/validate": app.validate,
         "/api/preview": app.preview,
         "/api/pick-folder": app.pick_folder,
+        "/api/pick-files": app.pick_files,
         "/api/scan": app.start_scan,
         "/api/create": app.start_create,
         "/api/add": app.start_add,
@@ -626,3 +637,14 @@ def _look_samples(record: dict, count: int = 4) -> list[dict]:
             groups.add(e.get("group"))
             scenes.add(e.get("scene"))
     return [{"id": e["id"], "name": e["name"], "group": e.get("group", "")} for e in out]
+
+
+def _basic_status(timeline, record: dict) -> dict:
+    """How far the current timeline is: clips, clips with DAVIGEN_AUTO, and the look of the last run."""
+    from .basic import run as basic, write  # noqa: PLC0415
+    if timeline is None:
+        return {"timeline": "", "clips": 0, "corrected": 0, "last_look": {}}
+    items = [ti for ti in basic._video_items(timeline) if ti.GetMediaPoolItem()]
+    corrected = sum(1 for ti in items if write.AUTO in (ti.GetVersionNameList(0) or []))
+    return {"timeline": timeline.GetName(), "clips": len(items), "corrected": corrected,
+            "last_look": record.get("look", {}), "last_run": record.get("date", "")}

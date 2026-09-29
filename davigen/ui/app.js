@@ -376,6 +376,12 @@ $("#add-source").addEventListener("click", async () => {
   const r = await api("/api/pick-folder", { prompt: "Choose a footage folder or card" });
   if (r.path && !state.sources.includes(r.path)) { state.sources.push(r.path); renderSources(); }
 });
+$("#add-files").addEventListener("click", async () => {
+  const r = await api("/api/pick-files", { prompt: "Choose clips to add" });
+  let added = false;
+  for (const path of r.paths || []) if (!state.sources.includes(path)) { state.sources.push(path); added = true; }
+  if (added) renderSources();
+});
 $("#transfer").addEventListener("change", (e) => { state.transfer = e.target.value; renderSpace(); });
 $("#scan").addEventListener("click", async () => {
   $("#scan").disabled = true;
@@ -958,7 +964,7 @@ const SETUP = [
   ["warmth", "Colour temperature", "The mood of the white balance: every camera is matched first, then shifted."],
   ["saturation", "Saturation", "How colourful the result is."],
 ];
-const wiz = { step: 0, data: null, look: {}, sample: "", options: { dry_run: false, recompute: true } };
+const wiz = { step: 0, data: null, look: {}, sample: "", options: { dry_run: false, recompute: false } };
 const previewSrc = (option, dim, w) => {
   const q = new URLSearchParams({ id: wiz.sample, dim, option, w: String(w), t: TOKEN, ...wiz.look });
   return `/basic/look.png?${q}`;
@@ -966,6 +972,10 @@ const previewSrc = (option, dim, w) => {
 async function showSetup() {
   wiz.data = await api("/api/basic/look");
   wiz.look = { ...wiz.data.look };
+  const st = wiz.data.status || {};
+  wiz.options.recompute = false;
+  wiz.options.dry_run = false;
+  wiz.firstRun = !st.corrected;
   wiz.sample = (wiz.data.samples[0] || {}).id || "";
   wiz.step = 0;
   renderSetup();
@@ -1009,9 +1019,19 @@ function renderStart() {
     const o = d.options[dim].find((x) => x.name === wiz.look[dim]) || {};
     return `<li><span class="muted">${esc(title)}</span><b>${esc(o.label || wiz.look[dim])}</b></li>`;
   }).join("");
+  const st = d.status || {};
+  const fresh = Math.max(0, (st.clips || 0) - (st.corrected || 0));
+  const changed = st.last_look && Object.keys(st.last_look).length
+    && SETUP.some(([dim]) => st.last_look[dim] && st.last_look[dim] !== wiz.look[dim]);
+  const status = !st.clips ? "" : !st.corrected
+    ? `All ${st.clips} clips of <b>${esc(st.timeline)}</b> get corrected.`
+    : `<b>${esc(st.timeline)}</b>: ${st.corrected} of ${st.clips} clips already have DAVIGEN_AUTO and stay as they are,
+       ${fresh ? `<b>${fresh} new</b> ${fresh === 1 ? "clip gets" : "clips get"} corrected` : "no new clips"} – matched to the rest.`;
   $("#wiz-body").innerHTML = `<h2>Ready</h2>
-    <p class="muted">Basic correction measures every clip of the current timeline and writes the result into the grade
+    <p class="muted">Basic correction measures the clips of the current timeline and writes the result into the grade
     version <span class="mono">DAVIGEN_AUTO</span>. Your own versions stay as they are.</p>
+    ${status ? `<p>${status}</p>` : ""}
+    ${changed ? '<p class="notice">The look differs from the last run. Tick <i>Rebuild</i> to give the clips that are already corrected the new look too.</p>' : ""}
     <ul class="wiz-summary">${chosen}</ul>
     <label class="check"><input type="checkbox" id="w-re" ${wiz.options.recompute ? "checked" : ""}> Rebuild clips that already have DAVIGEN_AUTO</label>
     <label class="check"><input type="checkbox" id="w-dry" ${wiz.options.dry_run ? "checked" : ""}> Dry run (report and markers only)</label>`;

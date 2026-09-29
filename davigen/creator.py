@@ -454,6 +454,20 @@ def add_footage(resolve, cfg: Config, plan: Plan, rep: Reporter) -> None:
     fmt = project_format(cfg, proj, base)
     existing = media_pool.all_clip_paths(proj.GetMediaPool().GetRootFolder())
 
+    # a card added a second time (copied the first time) has the same clips under other paths: same name and size
+    known = _fingerprints(existing)
+    twins = [c for g in plan.groups for c in g.clips if c.path not in existing and _fingerprint(c.path) in known]
+    if twins:
+        drop = {c.path for c in twins}
+        for g in plan.groups:
+            g.clips = [c for c in g.clips if c.path not in drop]
+        plan.groups = [g for g in plan.groups if g.clips]
+        rep.warn([f"{len(twins)} clips are already in the project (same name and size) – skipped"])
+        if not plan.groups:
+            for sid, _ in ADD_FOOTAGE_STEPS:
+                rep.finish(sid, "nothing new", state="skipped")
+            return
+
     rep.start("folders")
     filesystem.create_tree(cfg, base, list(dict.fromkeys(g.camera_key for g in plan.groups)))
     rep.finish("folders", str(base / cfg.workflow["folders"]["media_root"]))
@@ -481,6 +495,17 @@ def add_footage(resolve, cfg: Config, plan: Plan, rep: Reporter) -> None:
     _color(resolve, proj, cfg, _specs(cfg, plan.groups), items[0] if items else _any_clip(proj), rep)
     _assign(proj, rep, [assembly] if assembly else [])
     _save(resolve, rep, proj.GetName(), assembly)
+
+
+def _fingerprint(path: str) -> tuple[str, int] | None:
+    try:
+        return Path(path).name.lower(), Path(path).stat().st_size
+    except OSError:
+        return None
+
+
+def _fingerprints(paths) -> set:
+    return {f for f in (_fingerprint(p) for p in paths) if f}
 
 
 def refresh_color(resolve, cfg: Config, rep: Reporter) -> None:
