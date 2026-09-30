@@ -88,3 +88,9 @@ def folder_size(path: Path, limit_files: int = 20000) -> int:
         if f.is_file():
             total += f.stat().st_size
     return total
+
+
+def forget_project(folder: str) -> None:
+    entries = [e for e in recent_projects(check=False) if e["folder"] != folder]
+    DATA_DIR.mkdir(exist_ok=True)
+    PROJECTS.write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")

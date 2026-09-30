@@ -276,10 +276,10 @@ class Run:
         if a.id in self.values:
             step.values = {**a.defaults(self.ctx), **self.values[a.id]}
             return step.values
+        self._answer.clear()                         # before the UI can see the step waiting
         step.state = "input"
         self._journal()
-        self._answer.clear()
-        while not self._answer.wait(0.5):
+        while not self._answer.wait(0.5) and not self._stop.is_set():
             pass
         self._check_stop()
         return step.values or a.defaults(self.ctx)

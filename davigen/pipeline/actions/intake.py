@@ -88,7 +88,8 @@ class BringIn(Action):
         missing = [a.name for a in assets if not os.path.exists(a.source)]
         if missing:
             raise ActionError(f"{len(missing)} files aren't there anymore (card removed?): " + ", ".join(missing[:5]))
-        need = transfer.space_needed([Path(a.source) for a in assets], ctx.base, mode)
+        outside = [Path(a.source) for a in assets if not Path(a.source).resolve().is_relative_to(ctx.base.resolve())]
+        need = transfer.space_needed(outside, ctx.base, mode)
         free = shutil.disk_usage(ctx.base).free
         if need > free * 0.98:
             raise ActionError(f"Not enough space in {ctx.base}: {need / 1e9:.1f} GB needed, {free / 1e9:.1f} GB free")
@@ -106,8 +107,8 @@ class BringIn(Action):
         if asset.kind == "camera":
             filesystem.create_tree(ctx.cfg, ctx.base, [asset.camera_key])
             camera_folder = filesystem.media_folder_for(ctx.cfg, ctx.base, asset.camera_key)
-        if mode == transfer.LEAVE:
-            path = Path(asset.source)
+        if mode == transfer.LEAVE or Path(asset.source).resolve().is_relative_to(ctx.base.resolve()):
+            path = Path(asset.source)                    # left in place, or already inside the project
         else:
             target = destination(ctx.cfg, ctx.base, asset, camera_folder, ctx.shared["taken"])
             path = journal.transfer(Path(asset.source), target)
