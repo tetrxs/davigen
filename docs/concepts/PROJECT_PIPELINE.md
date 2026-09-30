@@ -28,7 +28,7 @@ music, voice-over, sound effects), sorts them, and applies actions to them – o
 |---|---|---|
 | Direction | set up a project, then extras | set up **and** manage a project |
 | Getting media in | *New project* and *Add footage*: camera video only | one **import** for every kind of asset, in the setup and at any time later |
-| Move / copy / leave | chosen in the wizard | one davigen setting, the same for setup and every import |
+| Move / copy / leave | chosen in the wizard | one davigen setting, the same for setup and every import, plus a fourth mode: **link** (§3.1) |
 | Basic correction | a flow of its own | an **action** on video assets (the correction itself is not touched) |
 | Song markers | part of Edit assist | an **action** on music assets, with four kinds of markers |
 | Rough cut, selects markers, Whisper transcription, preview video | Edit assist | **removed**, together with every model download |
@@ -83,6 +83,22 @@ An **asset** is one file the project owns. davigen recognises its kind and gives
 | LUT, font | .cube, .ttf/.otf | `04_ASSETS/LUTS`, `FONTS` | not imported |
 
 The guess is shown in the import list and can be changed per file or per group, like the camera groups today.
+
+### 3.1 Four ways to bring a file in
+
+| Mode | In the project folder | The original | Resolve points to |
+|---|---|---|---|
+| Move (default) | the file | gone from its old place (journaled, verified across drives) | the project folder |
+| Copy | the file | stays | the project folder |
+| **Link** (new) | a symbolic link at the usual place (`01_MEDIA/01_LUMIX_S1II/2026-09-25_MARSEILLE/P1000075.MOV`) | stays where it is, e.g. on the card | **the link in the project folder** (checked 2026-09-30: `ImportMedia` on a link keeps the link's path as *File Path*) |
+| Leave | nothing | stays | the original |
+
+*Link* keeps the project folder complete and tidy without using space: every file shows where it belongs. With the
+card pulled, the clips are offline in Resolve as with *leave* – but plugging the card back in brings them back
+without relinking, and because Resolve only knows the path inside the project, the files can be **collected** later
+(an action: replace each link by a verified copy, or move the original in) without Resolve noticing anything. The
+assets page shows linked assets and whether their target is reachable. Deleting a project trashes only the links,
+never the originals behind them.
 
 **The asset record.** `00_ADMIN/PROJECT_INFO/assets.json` remembers every asset: a stable id (from size and the
 first and last megabyte, so it survives the move into the project and recognises the same card a second time), kind,
@@ -170,7 +186,8 @@ in Resolve, that the source files are readable. Only then does the first file mo
 | Action | Kinds | Mandatory | Inputs |
 |---|---|---|---|
 | 7.1 Classify | all | yes | kind per file (changeable) |
-| 7.2 Bring in (move / copy / leave) | all | yes | – (setting) |
+| 7.2 Bring in (move / copy / link / leave) | all | yes | – (setting) |
+| 7.2a Collect linked files | linked assets | chosen | copy or move |
 | 7.3 Make importable | audio, graphics | yes | – |
 | 7.4 Import and sort | all but LUTs, fonts | yes | – |
 | 7.5 Colour: groups, input/output transforms, node structure, assembly timeline | camera clips | yes | camera profile (as today) |
@@ -245,12 +262,13 @@ setup the only thing left to do in Resolve should be to edit.
 2. exports it once more as `.drp` into its own folder (so *Put Back* from the Trash restores everything);
 3. deletes it from Resolve's Project Manager;
 4. moves the whole project folder to the Trash through Finder (footage in `01_MEDIA`, proxies, exports – everything);
-   footage imported with *leave in place* is outside the folder and stays untouched;
+   footage imported with *leave in place* is outside the folder and stays untouched, and for *link* only the links
+   go, never the files they point to;
 5. removes it from davigen's list.
 
 ## 11. Settings
 
-New in davigen's settings: move / copy / leave (for setup and import alike), which optional actions are ticked by
+New in davigen's settings: move / copy / link / leave (for setup and import alike), which optional actions are ticked by
 default, the default song-marker kinds, and the proxy resolution Resolve uses when you make proxies. ffmpeg becomes a fixed requirement (audio and image
 conversion, song analysis); the installer checks for it.
 
