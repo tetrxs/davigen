@@ -159,6 +159,13 @@ PLIST
   ok "Resolve finds davigen's Python (also after a restart)"
 fi
 
+# 6 · ffmpeg (optional): converting audio for Resolve and song markers ------------------------------
+if command -v ffmpeg >/dev/null 2>&1 || [[ -x /opt/homebrew/bin/ffmpeg || -x /usr/local/bin/ffmpeg ]]; then
+  ok "ffmpeg found (audio conversion, song markers)"
+else
+  warn "ffmpeg not found – audio conversion and song markers need it: brew install ffmpeg (https://brew.sh)"
+fi
+
 echo
 if [[ "$BEFORE" != "$PYHOME" ]] && pgrep -qf "MacOS/Resolve"; then
   warn "Resolve is running – quit and reopen it once so it picks up davigen's Python."

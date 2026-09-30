@@ -1,13 +1,18 @@
 # davigen
 
-**Set up a DaVinci Resolve project the same way every time.** You enter a name and point davigen at your cards.
-It then creates:
+**Set up a DaVinci Resolve project the same way every time – and keep it in order while you work on it.** You
+enter a name and point davigen at your cards. It then creates:
 
-- the folder structure on disk, with your footage moved into it safely
-- the Resolve project and its settings, media bins and sorted clips
+- the folder structure on disk, with your files moved (or copied, or linked) into it safely
+- the Resolve project with every setting in place – frame rate and playback frame rate, resolution, color
+  management, and every working folder (proxies, cache, gallery) inside the project folder
+- media bins with every file sorted: camera clips, stock, photos, graphics, music, voice-over, sound effects
 - timelines with named tracks
 - a color group for each camera and log profile, with the input and output transforms already in place
 - render presets for every delivery format
+
+Anything you add later – a second card, stock footage, a song, a logo – goes the same way and to the same places,
+and nothing davigen already did is done again.
 
 davigen runs from Resolve's own **Workspace → Scripts** menu and works in **Resolve Free** and **Studio**.
 It started as a personal travel-video workflow (Panasonic S1II 6K open gate in V-Log plus a DJI drone in D-Log M,
@@ -22,18 +27,17 @@ Then restart Resolve and choose **Workspace → Scripts → davigen**.
 
 ![davigen: the open project with frames from its footage, its colour groups and what's next](docs/images/overview.jpg)
 
-Beyond the setup, davigen gives every clip a **first grade** and cuts a **first edit**:
+On top of the setup, two actions you can run on new files right away or on everything later:
 
 - **Basic correction** brings exposure, white balance, contrast and saturation of every clip to one look you
   choose once – with keyframes where the light changes within a shot – in its own grade version, so your grade
   stays untouched.
-- **Edit assist** watches all footage, marks good, unusable and spoken stretches, and, with a song, builds a
-  rough cut on the beat in your edit timeline – whole song or a 30/60/90 s reel – which you can watch in davigen
-  before opening it in Resolve.
+- **Song markers** put markers to cut on onto every song, each kind in its own colour: bars, phrases and parts,
+  accents, and (estimated) vocal entries. Plain signal analysis on your Mac – no AI model, nothing downloaded.
 
-| Choose the look | See what was done, clip by clip | Cut to music |
-| --- | --- | --- |
-| ![Basic correction: look setup with before/after](docs/images/basic.jpg) | ![Report with the timeline as a film strip](docs/images/report.jpg) | ![Edit assist: song, length, pace and the rough cut](docs/images/edit.jpg) |
+| Choose the look | See what was done, clip by clip |
+| --- | --- |
+| ![Basic correction: look setup with before/after](docs/images/basic.jpg) | ![Report with the timeline as a film strip](docs/images/report.jpg) |
 
 ---
 
@@ -44,7 +48,7 @@ Beyond the setup, davigen gives every clip a **first grade** and cuts a **first 
 - [Using davigen](#using-davigen)
 - [The color pipeline](#the-color-pipeline)
 - [Cameras and log profiles](#cameras-and-log-profiles)
-- [Moving footage safely](#moving-footage-safely)
+- [Bringing files in safely](#bringing-files-in-safely)
 - [Resolve versions, Free and Studio](#resolve-versions-free-and-studio)
 - [Customizing the standard](#customizing-the-standard)
 - [Privacy and network access](#privacy-and-network-access)
@@ -59,25 +63,34 @@ The day-to-day editing guide (which timeline is for what, how to grade, how to d
 
 | Step | Result |
 |---|---|
-| **Scan** | Reads make, model, resolution, frame rate, bit depth, lens and log profile from every clip's metadata (exiftool, Panasonic/Sony XML sidecars, DJI lens IDs). Clips are grouped by camera + profile. |
-| **Folders** | `ITALY_2026/00_ADMIN … 05_EXPORTS, 99_ARCHIVE` with one `01_MEDIA/NN_<CAMERA>` folder per camera. |
-| **Footage** | Moves (or copies) the clips into their camera folder, checksum-verified and rolled back automatically on any failure. |
-| **Project** | Resolve project in `VIDEO_PROJECTS/ACTIVE` with frame rate, resolution, DaVinci YRGB color management (DaVinci Wide Gamut / Intermediate timeline, Rec.709 Gamma 2.4 output), proxy and cache settings. |
-| **Bins** | `01_FOOTAGE/<CAMERA>`, selects, timelines, audio, graphics, PowerGrades … Clips get a clip color and keywords, and the camera and profile are written to their metadata. |
+| **Scan** | Looks at every file: camera clips get make, model, resolution, frame rate, bit depth, lens and log profile from their metadata (exiftool, Panasonic/Sony XML sidecars, DJI lens IDs) and are grouped by camera + profile; every other file is recognised as stock video, photo, graphic, logo, music, voice-over, sound effect, LUT, font or document – you can change each. |
+| **Folders** | `ITALY_2026/00_ADMIN … 05_EXPORTS, 99_ARCHIVE` with one `01_MEDIA/NN_<CAMERA>` folder per camera, `01_MEDIA/9x_…` for audio, stills and stock, `04_ASSETS/…` for music, effects, graphics, logos, fonts and LUTs. |
+| **Files** | Moves, copies or links every file to its place – checksum-verified and put back automatically on any failure. Audio that isn't 48 kHz PCM gets a 48 kHz WAV next to it (a 44.1 kHz FLAC crackled in Resolve), images Resolve can't read (SVG, AVIF) a PNG. |
+| **Project** | Resolve project in `VIDEO_PROJECTS/ACTIVE` with frame rate **and playback frame rate**, resolution, DaVinci YRGB color management (DaVinci Wide Gamut / Intermediate timeline, Rec.709 Gamma 2.4 output), proxy settings, render cache, and the proxy, cache, project media and gallery folders inside the project folder. |
+| **Bins** | `01_FOOTAGE/<CAMERA>`, stock, stills, selects, timelines, audio (music, VO, SFX), graphics, logos, PowerGrades … Clips get a clip color and keywords, and the camera and profile are written to their metadata. |
 | **Timelines** | `TL_01_ASSEMBLY` holds all clips in shooting order. `TL_02_EDIT` and `TL_03_MASTER` are at master resolution. There is one `TL_0N_DELIVERY_…` timeline per extra delivery format. Every timeline has named tracks. |
 | **Color** | One color group per camera and profile (`G_LUMIX_S1II_VLOG`, `G_DJI_AIR3_DLOGM`). **Group Pre-Clip** turns the camera log into DaVinci Wide Gamut. **Group Post-Clip** turns that into Rec.709 with DaVinci tone mapping. Each clip gets six labelled, empty nodes (`01_EXPOSURE … 06_FINISH`). |
 | **Basic correction** | Measures every clip (rendered by Resolve itself, in the working space) and fills `01_EXPOSURE … 04_SATURATION` with exposure, white balance, a real black point and saturation, matched per scene and across cameras. Where the light changes inside a clip (a tunnel, a cloud, shade to sun) it writes keyframes. Everything goes into a grade version `DAVIGEN_AUTO`; your own grade is never touched. Unsure clips get a marker, and the report shows every clip before and after, with what was measured and why. See [docs/WORKFLOW.md §5](docs/WORKFLOW.md#5-grading). |
-| **Edit assist** | Watches every clip once: green markers on good stretches, red on unusable ones (pocket, blur, shake, whip pans), blue where someone speaks – on the clips themselves, so they show in every timeline. With a song (chosen and analysed in davigen) it marks bars and sections and builds a first rough cut on the beat in your edit timeline – the whole song or its most energetic 30, 60 or 90 s, at a calm, musical or fast pace – plus a graded preview video to watch before opening Resolve. See [docs/concepts/EDIT_ASSIST.md](docs/concepts/EDIT_ASSIST.md). |
+| **Song markers** | Markers on the song itself, so they show wherever it is used: bars (cyan), phrases every 4 bars and the song's parts as ranges (purple), accents that stand out from the beat (yellow), vocal entries (pink, estimated). davigen replaces only its own markers. |
 | **Deliver** | Render presets and output folders for the master (ProRes 422 HQ), 16:9 UHD (H.265) and 9:16 1080 (H.264), with 16:9 HD, 4:5 and 1:1 as options. The whole set can be queued with one click. |
 
 The home screen also looks after the project that is open in Resolve:
 
-- **Add footage:** new cards go into the same structure, the same bins and the end of the assembly timeline.
+- **Add files:** new cards, stock, photos, songs go through the same steps as at the start – into the same
+  structure and bins, new clips to the end of the assembly timeline. Files already in the project are recognised
+  (by content, not by name) and left as they are.
+- **Assets:** every file of the project with what davigen has done to it; apply Basic correction or song markers
+  to everything that needs it, or to a selection. A clip you delete in Resolve is noticed and left alone.
 - **Assign groups & nodes:** use it after you build new timelines. Resolve stores groups and grades per timeline clip.
 - **Refresh color:** rebuilds every group's transforms, for example after you add a missing LUT.
 - **Queue renders:** adds every delivery to the render queue.
 
-The home screen also lists recent projects, with **Open in Resolve** and **Show in Finder**.
+The home screen also lists recent projects, with **Open in Resolve**, **Show in Finder** and **Delete** (the Resolve
+project and its whole folder go to the Trash, with a last export inside, so *Put Back* restores everything).
+
+Everything davigen does runs as one **pipeline**: the steps are built from what you chose and what is really left
+to do, each shows *n of m*, a bar and the time left, and a step that needs a choice (the look, the marker kinds)
+waits for it. How it works: [docs/concepts/PROJECT_PIPELINE.md](docs/concepts/PROJECT_PIPELINE.md).
 
 ## Install, update, uninstall
 
@@ -86,7 +99,8 @@ The home screen also lists recent projects, with **Open in Resolve** and **Show 
 - macOS 13 or later, on Apple silicon or Intel
 - DaVinci Resolve 18.5 or later. Version 19 or later is recommended, and development happens on 21.
 
-Nothing else is needed: no Homebrew, no system Python and no Docker.
+Nothing else is needed: no system Python and no Docker. For converting audio and for song markers davigen uses
+[ffmpeg](https://ffmpeg.org) if it is installed (`brew install ffmpeg`); everything else works without it.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tetrxs/davigen/main/install.sh | zsh
@@ -137,10 +151,11 @@ Open Resolve, then choose **Workspace → Scripts → davigen**. A browser windo
 **New project** has five steps:
 
 1. **Project:** the name (normalized to `ITALY_2026` style) and a location. The default is `~/Movies/davigen`.
-2. **Footage:** add card or folder paths, then scan. Choose **Move** (the default), **Copy** or **Leave in place**.
-3. **Cameras:** check the detected profile for each camera. It shows where the input transform will come from,
-   and how sure the detection is: *from metadata*, *inferred* or *guessed*. You can also add cameras that have no
-   footage yet from the camera catalog, which has photos. davigen prepares their groups now so the clips can come later.
+2. **Files:** add cards, folders or single files, then scan. How they come into the project – move, copy, link
+   or leave – is a davigen setting, the same for every import.
+3. **Assets:** check the detected profile for each camera. It shows where the input transform will come from,
+   and how sure the detection is: *from metadata*, *inferred* or *guessed*. Every other file is listed with its
+   kind, which you can change or leave out.
 4. **Format:**
    - aspect ratio (3:2, 16:9, 17:9, 4:3, 2.39:1, 9:16, 4:5, 1:1 or custom)
    - master resolution, from a preset or custom width × height
@@ -149,12 +164,13 @@ Open Resolve, then choose **Workspace → Scripts → davigen**. A browser windo
 
    davigen suggests the format of your footage. It warns about frame-rate mismatches, for example 59.94 fps drone
    clips in a 25 fps project. In Resolve Free it shows the resolution the project will get.
-5. **Review:** every folder, timeline, group and delivery before anything is created, and the **Basic
-   correction** checkbox: a measured first pass of exposure, white balance, contrast and saturation in a grade
-   version `DAVIGEN_AUTO`.
+5. **Start:** the optional actions – **Basic correction** (with its look) and **Song markers** (with their kinds) –
+   and a summary of folders, timelines, groups and deliveries before anything is created.
 
-You then see each step's progress. The run ends with **Left to do in Resolve**: the few things Resolve's scripting
-API cannot do, such as setting the playback frame rate or generating proxies.
+You then follow the run step by step. **Add files** on the home screen is the same without steps 1 and 4.
+
+Proxies are made in Resolve when you want them (Media Pool → select clips → right-click → *Generate Proxy Media*):
+davigen has set their resolution and pointed them at `03_WORK/PROXIES`, so they land in the project.
 
 **Basic correction** on the home screen (or **Workspace → Scripts → davigen Basic Correction**) runs the same
 first pass on the timeline that is open in Resolve, with a report of every clip: click one for its before and after,
@@ -221,7 +237,20 @@ the recording format, and you confirm it in the Cameras step.
 [Wikimedia Commons](https://commons.wikimedia.org). It refreshes about once a year. A camera the catalog doesn't
 know can be added by hand, and davigen remembers it (`data/user_cameras.json`).
 
-## Moving footage safely
+## Bringing files in safely
+
+How files come into the project is set once in davigen's settings and used for the setup and every later import:
+
+| Mode | In the project folder | The original |
+|---|---|---|
+| **Move** (default) | the file | moved |
+| **Copy** | a checked copy | stays |
+| **Link** | a link at the file's place, e.g. `01_MEDIA/01_LUMIX_S1II/2026-09-25_DCIM/P1000075.MOV` | stays where it is, e.g. on the card |
+| **Leave in place** | nothing | stays, imported from there |
+
+**Link** keeps the project folder complete without using space. Resolve knows only the path inside the project, so
+with the card plugged back in everything is online again without relinking, and *Collect linked files* on the
+Assets page later replaces the links by the files themselves – Resolve doesn't notice.
 
 **Move** is the default, so a 5 TB shoot doesn't need another 5 TB of free space.
 
@@ -230,13 +259,13 @@ know can be added by hand, and davigen remembers it (`data/user_cameras.json`).
   original. Only then does it take its final name, and only then is the original removed.
 - **Sidecar files** (`.XML`, `.LRF`, `.SRT`, …) travel with their clip.
 - **Nothing is overwritten.** If a name already exists, the run stops before touching anything.
-- **Every step is recorded in a journal** (`00_ADMIN/PROJECT_INFO/transfer_*.json`) before it happens:
-  - If any later step fails (Resolve import, color, a full disk), every file goes back where it was and partial
-    copies are removed.
+- **Every step is recorded in a journal** (`00_ADMIN/PROJECT_INFO/transfer_*.json`, `runs/`) before it happens:
+  - Bringing files in and importing them is one transaction: if a step fails (Resolve refuses a file, a full
+    disk), every file goes back where it was, partial copies are removed and nothing half-imported stays in the
+    Media Pool.
   - If Resolve crashes, the Mac shuts down or you quit mid-transfer, the next davigen start undoes the unfinished
-    transfer and tells you on the home screen.
-
-Choose **Copy** for cards you want to keep untouched. Choose **Leave in place** to import the files from where they are.
+    import and tells you on the home screen.
+  - Actions after that (Basic correction, song markers) keep what they finished; the next run does exactly the rest.
 
 ## Resolve versions, Free and Studio
 
@@ -287,9 +316,6 @@ It uses the internet only in these cases:
 - **Online sources**, only after you allow them on first start:
   - the camera catalog, from the Wikidata query service and Wikimedia Commons thumbnails
   - manufacturer LUT catalogs, currently DJI's public download center
-- **Transcription** (Edit assist, only when you tick *Transcribe speech*): mlx-whisper from PyPI into davigen's
-  Python, and the Whisper model from Hugging Face, once. Transcribing itself runs on your Mac.
-
 Nothing about your footage or projects leaves your Mac.
 
 ## Troubleshooting
@@ -301,7 +327,7 @@ Nothing about your footage or projects leaves your Mac.
 | **"davigen isn't running" in the browser** | Start it again from the Scripts menu. See [Using davigen](#using-davigen). |
 | **A group has no input transform** | The home screen shows why. The fix is either *Allow online sources* or *Choose LUT file…*, followed by *Refresh color*. |
 | **Renders look ungraded on a new timeline** | Run *Assign groups & nodes*. Resolve keeps group membership per timeline clip. |
-| **Playback frame rate is wrong** | Resolve's API can't set it. Go to Project Settings → Master Settings → Playback frame rate. |
+| **Playback frame rate is wrong** | Resolve's API can't set it, so davigen creates new projects from a project template it makes itself, with the right playback frame rate. Projects made by an older davigen: Project Settings → Master Settings → Playback frame rate. |
 
 ## Development
 
@@ -327,14 +353,18 @@ npm run dev                                # hot reload; /api is proxied to a da
 
 **Code map:**
 
-- **`creator.py`:** the flows
+- **`pipeline/`:** everything that happens to a project, as building blocks (`actions/`), the runner that builds
+  and runs the steps, the asset record (`assets.py`) and its real state in Resolve (`state.py`)
+- **`template.py`:** new projects from davigen's own project template (playback frame rate, proxy folder)
+- **`creator.py`:** maintenance flows (refresh color, assign groups, queue renders)
 - **`transfer.py`:** journaled moves
 - **`formats.py`:** resolutions, timelines, deliveries
 - **`color.py`, `transforms.py`, `colormath.py`, `drx.py`:** color pipeline
 - **`scanner.py`, `mediainfo.py`:** metadata
 - **`catalog.py`:** camera catalog
 - **`server.py`:** the local API; **`web/`** its UI (built into `ui/`)
-- **`posters.py`, `update.py`:** project pictures for the UI, the update check
+- **`music.py`:** beats, bars, parts, accents and vocal entries of a song
+- **`posters.py`, `update.py`, `delete.py`:** project pictures for the UI, the update check, deleting a project
 
 Pull requests are welcome. By opening one, you agree that your contribution is licensed under the terms below.
 
@@ -356,9 +386,7 @@ Third-party components are downloaded at install time, not redistributed:
 - Python ([python-build-standalone](https://github.com/astral-sh/python-build-standalone), PSF license)
 - [colour-science](https://github.com/colour-science/colour) (BSD-3-Clause)
 - [ExifTool](https://exiftool.org) by Phil Harvey (Perl Artistic License / GPL)
-- for *Transcribe speech* only: [mlx-whisper](https://github.com/ml-explore/mlx-examples) (MIT) and OpenAI's
-  [Whisper](https://github.com/openai/whisper) large-v3-turbo weights (MIT), converted by mlx-community
-- Edit assist uses [ffmpeg](https://ffmpeg.org) if it is installed (e.g. with Homebrew); davigen doesn't ship it
+- davigen uses [ffmpeg](https://ffmpeg.org) if it is installed (e.g. with Homebrew); it doesn't ship it
 
 Basic correction's white-balance model (`davigen/basic/models/wb_ccc.npz`) was trained by davigen on the
 [SimpleCube++](https://github.com/Visillect/CubePlusPlus) dataset by Ershov et al. (2020), licensed CC BY 4.0. The

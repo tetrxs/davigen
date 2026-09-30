@@ -1,7 +1,9 @@
 # Concept: davigen as a project manager, built on one pipeline
 
-**Status:** concept for review (2026-09-30; proxies and safety levels decided the same day). The Resolve facts in §2 were checked live in Resolve 21.0.0.48 Free on
-this Mac today; nothing else is built yet.
+**Status:** built (2026-09-30). The Resolve facts in §2 were checked live in Resolve 21.0.0.48 Free; the pipeline
+ran there on a test project (new project, adding later, link and collect, a refused import rolled back, a clip
+removed in Resolve, repair of a group without its LUT, the input pause, deleting) and took MARSEILLE_2026 into its
+asset record without changing anything in it.
 
 davigen has been a project *setup* tool with two AI-ish extras. From here on it **looks after a project for its whole
 life**: it sets the project up, takes in every kind of asset at any time (footage, stock, photos, GIFs, graphics,
@@ -269,8 +271,8 @@ setup the only thing left to do in Resolve should be to edit.
 ## 11. Settings
 
 New in davigen's settings: move / copy / link / leave (for setup and import alike), which optional actions are ticked by
-default, the default song-marker kinds, and the proxy resolution Resolve uses when you make proxies. ffmpeg becomes a fixed requirement (audio and image
-conversion, song analysis); the installer checks for it.
+default, the default song-marker kinds, and the proxy resolution Resolve uses when you make proxies. ffmpeg is
+used for audio conversion and song markers when it is installed; the installer says so if it isn't.
 
 ## 12. Order of work
 
