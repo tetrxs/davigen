@@ -198,8 +198,8 @@ in Resolve, that the source files are readable. Only then does the first file mo
 
 **7.3 Make importable.** Resolve crackled on a 44.1 kHz FLAC with a cover picture on MARSEILLE; as 48 kHz / 24-bit
 WAV it played clean. Audio that isn't 48 kHz PCM, or carries a picture, gets a 48 kHz WAV next to it, and the WAV is
-imported; the original stays. Images Resolve can't read (webp, animated gif) are converted the same way. Needs ffmpeg
-(§11).
+imported; the original stays. Resolve 21 reads GIF (animated too), WebP and HEIC but not SVG, AVIF or OGG (checked
+2026-09-30): those get a PNG (SVG through Quick Look) or a WAV. Audio needs ffmpeg (§11).
 
 **7.5 Colour.** Today's code (groups, LUTs, node structure, assembly timeline), called per new camera group and new
 clip – already idempotent today.
