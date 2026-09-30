@@ -11,7 +11,7 @@ import {
   PaletteIcon,
   PlusIcon,
   RefreshCwIcon,
-  ScissorsIcon,
+  LayersIcon,
   SendIcon,
   SparklesIcon,
   UndoDotIcon,
@@ -47,7 +47,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
-import { api, fmtDate, fmtFormat, type CurrentGroup, type LookSetup } from "@/lib/api"
+import { api, fmtDate, fmtFormat, type AssetsTable, type CurrentGroup, type LookSetup } from "@/lib/api"
 import { notify, useApp } from "@/lib/app-state"
 import { ProjectGallery } from "@/pages/projects"
 
@@ -67,6 +67,22 @@ export function Banners() {
           </AlertDescription>
           <AlertAction>
             <Button size="xs" variant="ghost" onClick={() => setInfo({ ...info, recovery: [] })}>
+              Dismiss
+            </Button>
+          </AlertAction>
+        </Alert>
+      ))}
+      {(info.run_recovery ?? []).map((r, i) => (
+        <Alert key={`run${i}`} variant={r.problems.length ? "destructive" : "default"}>
+          <UndoDotIcon />
+          <AlertTitle>An interrupted import was undone{r.title ? ` · ${r.title}` : ""}</AlertTitle>
+          <AlertDescription>
+            {r.undone} steps put back – the files are where they were and nothing half-imported stays in Resolve. Start
+            the import again to bring them in.
+            {r.problems.length > 0 && ` Please check: ${r.problems.join("; ")}`}
+          </AlertDescription>
+          <AlertAction>
+            <Button size="xs" variant="ghost" onClick={() => setInfo({ ...info, run_recovery: [] })}>
               Dismiss
             </Button>
           </AlertAction>
@@ -188,7 +204,7 @@ function Hero() {
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => navigate("add")}>
               <PlusIcon data-icon="inline-start" />
-              Add footage
+              Add files
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="secondary" size="icon" aria-label="More" />}>
@@ -328,32 +344,7 @@ function CurrentProject() {
           </CardFooter>
         </Card>
 
-        <Card className="relative overflow-hidden">
-          <div className="pointer-events-none absolute -top-24 -right-24 size-64 rounded-full bg-brand-2/10 blur-3xl" />
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ScissorsIcon className="size-4 text-brand-2" />
-              Edit assist
-            </CardTitle>
-            <CardDescription>
-              Watches every clip once: good stretches, unusable ones, speech – as markers and a selects timeline. With
-              music it builds a first rough cut on the beat.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            {["Selects", "Transcripts", "Rough cut"].map((t) => (
-              <Badge key={t} variant="outline">
-                {t}
-              </Badge>
-            ))}
-          </CardContent>
-          <CardFooter>
-            <Button variant="outline" onClick={() => navigate("edit")}>
-              Open edit assist
-              <ArrowRightIcon data-icon="inline-end" />
-            </Button>
-          </CardFooter>
-        </Card>
+        <AssetsCard />
       </div>
 
       <ColorGroups />
@@ -457,6 +448,80 @@ function ColorGroups() {
           })}
         </ItemGroup>
       </CardContent>
+    </Card>
+  )
+}
+
+function AssetsCard() {
+  const { info, navigate, startFlow, running } = useApp()
+  const [data, setData] = React.useState<AssetsTable | null>(null)
+  React.useEffect(() => {
+    api<AssetsTable>("/api/assets").then(setData).catch(() => setData(null))
+  }, [running])
+  const assets = data?.assets.filter((a) => !a.removed) ?? []
+  const byKind = Object.entries(assets.reduce<Record<string, number>>((n, a) => ({ ...n, [a.kind]: (n[a.kind] ?? 0) + 1 }), {}))
+  const todo = (info?.actions ?? [])
+    .map((a) => ({ ...a, n: assets.filter((r) => ["todo", "stale"].includes(r.status[a.id] ?? "")).length }))
+    .filter((a) => a.n > 0)
+  return (
+    <Card className="relative overflow-hidden">
+      <div className="pointer-events-none absolute -top-24 -right-24 size-64 rounded-full bg-brand-2/10 blur-3xl" />
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <LayersIcon className="size-4 text-brand-2" />
+          Assets
+        </CardTitle>
+        <CardDescription>
+          Footage, photos, graphics, music and voice-over of this project – added at the start or any time later, the
+          same way. Songs get markers to cut on.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {data === null ? (
+          <Skeleton className="h-8 w-full" />
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {byKind.length ? (
+              byKind.map(([k, n]) => (
+                <Badge key={k} variant="outline" className="font-normal">
+                  {n} {info?.kinds[k] ?? k}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-sm text-muted-foreground">Nothing yet.</span>
+            )}
+          </div>
+        )}
+        {todo.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {todo.map((a) => (
+              <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm">
+                <span>
+                  {a.label}: <span className="text-muted-foreground">{a.n} not yet</span>
+                </span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={running}
+                  onClick={() => startFlow("/api/apply", a.label, "pipeline", { actions: [a.id], assets: [] })}
+                >
+                  Apply
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+      <CardFooter className="flex flex-wrap gap-2">
+        <Button onClick={() => navigate("add")} disabled={running}>
+          <PlusIcon data-icon="inline-start" />
+          Add files
+        </Button>
+        <Button variant="outline" onClick={() => navigate("assets")}>
+          All assets
+          <ArrowRightIcon data-icon="inline-end" />
+        </Button>
+      </CardFooter>
     </Card>
   )
 }

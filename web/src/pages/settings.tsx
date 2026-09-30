@@ -31,9 +31,12 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, 
 import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Spinner } from "@/components/ui/spinner"
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from "@/components/ui/field"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
-import { api, fmtDate, type CatalogInfo, type Update } from "@/lib/api"
+import { api, fmtDate, type CatalogInfo, type Info, type TransferMode, type Update } from "@/lib/api"
 import { notify, useApp } from "@/lib/app-state"
+import { InputForm } from "@/pipeline/input-form"
 
 export function SettingsPage() {
   const { info, setInfo, setOnline } = useApp()
@@ -68,6 +71,8 @@ export function SettingsPage() {
       <PageHeader title="Settings" description="Kept on this Mac, for every project." />
 
       <UpdateCard />
+
+      <ImportCard />
 
       <Card>
         <CardHeader>
@@ -285,6 +290,94 @@ function UpdateCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </Card>
+  )
+}
+
+const MODES: { value: TransferMode; title: string; about: string }[] = [
+  { value: "move", title: "Move", about: "Into the project folder. Same drive: instant; across drives: copied, checked, then removed." },
+  { value: "copy", title: "Copy", about: "A checked copy in the project folder; the originals stay untouched." },
+  {
+    value: "link",
+    title: "Link",
+    about:
+      "A link at each file's place in the project folder; the files stay where they are (e.g. on the card). Collect them later from the Assets page.",
+  },
+  { value: "leave", title: "Leave in place", about: "Imported from where they are; the project folder stays empty." },
+]
+
+function ImportCard() {
+  const { info, setInfo } = useApp()
+  if (!info) return null
+  const save = async (changes: Partial<Info["settings"]>) => {
+    const settings = await api<Info["settings"]>("/api/settings", changes)
+    setInfo({
+      ...info,
+      settings,
+      transfer: settings.transfer ?? info.transfer,
+      defaults: {
+        actions: settings.default_actions ?? info.defaults.actions,
+        song_markers: settings.song_markers ?? info.defaults.song_markers,
+      },
+    })
+  }
+  const mode = info.settings.transfer ?? info.transfer
+  const chosen = info.settings.default_actions ?? info.defaults.actions
+  const markers = info.actions.find((a) => a.id === "song_markers")
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Import</CardTitle>
+        <CardDescription>The same for a new project and for everything added later.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-6">
+        <RadioGroup
+          value={mode}
+          onValueChange={(v) => save({ transfer: v as TransferMode })}
+          className="grid gap-3 md:grid-cols-2"
+        >
+          {MODES.map((m) => (
+            <FieldLabel key={m.value} htmlFor={`mode-${m.value}`}>
+              <Field orientation="horizontal">
+                <FieldContent>
+                  <FieldTitle>{m.title}</FieldTitle>
+                  <FieldDescription>{m.about}</FieldDescription>
+                </FieldContent>
+                <RadioGroupItem value={m.value} id={`mode-${m.value}`} />
+              </Field>
+            </FieldLabel>
+          ))}
+        </RadioGroup>
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">Ticked by default in every import</span>
+          {info.actions
+            .filter((a) => a.on_import)
+            .map((a) => (
+              <FieldLabel key={a.id} htmlFor={`def-${a.id}`}>
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldTitle>{a.label}</FieldTitle>
+                    <FieldDescription>{a.about}</FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    id={`def-${a.id}`}
+                    checked={chosen.includes(a.id)}
+                    onCheckedChange={(on) =>
+                      save({ default_actions: on ? [...chosen, a.id] : chosen.filter((x) => x !== a.id) })
+                    }
+                  />
+                </Field>
+              </FieldLabel>
+            ))}
+        </div>
+        {markers && (
+          <InputForm
+            inputs={markers.inputs}
+            values={{ kinds: info.settings.song_markers ?? info.defaults.song_markers ?? markers.inputs[0]?.default }}
+            onChange={(v) => save({ song_markers: v.kinds as string[] })}
+          />
+        )}
+      </CardContent>
     </Card>
   )
 }

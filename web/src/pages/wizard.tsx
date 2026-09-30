@@ -2,13 +2,11 @@ import * as React from "react"
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
-  CameraIcon,
-  CopyIcon,
+  ChevronDownIcon,
   FilePlusIcon,
+  FilmIcon,
   FolderInputIcon,
   FolderPlusIcon,
-  MoveIcon,
-  PinIcon,
   ScanSearchIcon,
   SparklesIcon,
   TriangleAlertIcon,
@@ -35,9 +33,8 @@ import {
   FieldTitle,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
+import { Item, ItemActions, ItemContent, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Progress } from "@/components/ui/progress"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -52,28 +49,28 @@ import {
   type Scan,
   type ScanGroup,
   type Source,
+  type Values,
 } from "@/lib/api"
-import { notify, useApp } from "@/lib/app-state"
+import { useApp } from "@/lib/app-state"
 import { cn } from "@/lib/utils"
+import { defaults, InputForm } from "@/pipeline/input-form"
 
 type Mode = "new" | "add"
 type Choice = { include: boolean; profile: string }
-type Extra = { camera_key: string; camera_name: string; profile: string; profiles: string[]; thumb: string }
 type Fmt = Format & { custom: boolean }
-type Hit = { key: string; name: string; brand: string; profiles: string[]; thumb: string; year?: string; known?: boolean }
 
 const STEPS: Record<Mode, [string, string][]> = {
   new: [
     ["project", "Project"],
-    ["footage", "Footage"],
-    ["cameras", "Cameras"],
+    ["files", "Files"],
+    ["assets", "Assets"],
     ["format", "Format"],
-    ["review", "Review"],
+    ["actions", "Start"],
   ],
   add: [
-    ["footage", "Footage"],
-    ["cameras", "Cameras"],
-    ["review", "Review"],
+    ["files", "Files"],
+    ["assets", "Assets"],
+    ["actions", "Start"],
   ],
 }
 
@@ -106,10 +103,18 @@ export function WizardPage({ mode }: { mode: Mode }) {
   const [scan, setScan] = React.useState<Scan | null>(null)
   const [scanning, setScanning] = React.useState<{ done: number; total: number } | null>(null)
   const [choices, setChoices] = React.useState<Record<string, Choice>>({})
-  const [extra, setExtra] = React.useState<Extra[]>([])
-  const [transfer, setTransfer] = React.useState<string>(info?.transfer ?? "move")
+  const [kinds, setKinds] = React.useState<Record<string, string>>({})
+  const [exclude, setExclude] = React.useState<Set<string>>(new Set())
   const [format, setFormat] = React.useState<Fmt | null>(null)
-  const [basic, setBasic] = React.useState(!!info?.basic_default)
+  const [chosen, setChosen] = React.useState<Set<string>>(() => new Set(info?.defaults.actions ?? []))
+  const [values, setValues] = React.useState<Record<string, Values>>(() =>
+    Object.fromEntries(
+      (info?.actions ?? []).map((a) => [
+        a.id,
+        defaults(a.inputs, a.id === "song_markers" && info?.defaults.song_markers ? { kinds: info.defaults.song_markers } : undefined),
+      ])
+    )
+  )
 
   if (!info) return null
   if (mode === "add" && !current?.managed)
@@ -121,7 +126,7 @@ export function WizardPage({ mode }: { mode: Mode }) {
               <FolderInputIcon />
             </EmptyMedia>
             <EmptyTitle>Open a davigen project first</EmptyTitle>
-            <EmptyDescription>Footage is added to the project that is open in Resolve.</EmptyDescription>
+            <EmptyDescription>Files are added to the project that is open in Resolve.</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </Page>
@@ -139,36 +144,43 @@ export function WizardPage({ mode }: { mode: Mode }) {
       profile: choices[g.id].profile,
       group_name: `G_${g.camera_key}_${info.shorts[choices[g.id].profile] || choices[g.id].profile}`,
     }))
+  const known = new Set(scan?.known ?? [])
+  const others = (scan?.kinds ?? []).flatMap((k) => k.assets.map((a) => ({ ...a, kind: kinds[a.id] ?? k.kind })))
+  const otherCount = others.filter((a) => !exclude.has(a.id) && !known.has(a.id)).length
+  const clipCount = selected.reduce((n, g) => n + g.count, 0)
+  const kindsPresent = new Set([
+    ...(selected.length ? ["camera"] : []),
+    ...others.filter((a) => !exclude.has(a.id)).map((a) => a.kind),
+  ])
 
   const create = () => {
+    const actions = [...chosen].filter((a) =>
+      info.actions.some((x) => x.id === a && x.kinds.some((k) => kindsPresent.has(k)))
+    )
     const body = {
       project: normalizeName(name),
       root,
-      transfer,
       groups: (scan?.groups ?? []).map((g) => ({ id: g.id, ...choices[g.id] })),
-      extra,
+      kinds,
+      exclude: [...exclude],
       format: mode === "new" ? formatBody(fmt) : undefined,
-      basic_correction: mode === "new" && basic,
+      actions,
+      values: Object.fromEntries(actions.map((a) => [a, values[a]])),
     }
-    if (mode === "add") startFlow("/api/add", `Adding footage to ${current?.name}`, "add", body)
-    else startFlow("/api/create", `Creating ${body.project}`, "create", body)
+    if (mode === "add") startFlow("/api/add", `Adding to ${current?.name}`, "pipeline", body)
+    else startFlow("/api/create", `Creating ${body.project}`, "pipeline", body)
   }
 
-  const canNext =
-    id === "project"
-      ? !!normalizeName(name)
-      : id === "footage"
-        ? !!scan?.groups.length && !scanning
-        : true
+  const canNext = id === "project" ? !!normalizeName(name) : id === "files" ? !!scan?.count && !scanning : true
 
   return (
     <Page className="max-w-4xl">
       <PageHeader
         eyebrow={mode === "add" ? current?.name : "New project"}
-        title={mode === "add" ? "Add footage" : steps[step][1]}
+        title={mode === "add" ? "Add files" : steps[step][1]}
         description={
           mode === "add"
-            ? "New clips go into their camera bins and to the end of the assembly timeline. Nothing you did so far is touched; clips already in the project are skipped."
+            ? "Footage, photos, graphics, music, voice-over – each goes to its place in the project. What is already in the project is recognised and left as it is."
             : undefined
         }
       />
@@ -176,17 +188,16 @@ export function WizardPage({ mode }: { mode: Mode }) {
 
       <div key={id} className="flex flex-col gap-6 animate-in fade-in-0 slide-in-from-right-4 duration-300">
         {id === "project" && <ProjectStep name={name} setName={setName} root={root} setRoot={setRoot} onEnter={next} />}
-        {id === "footage" && (
-          <FootageStep
+        {id === "files" && (
+          <FilesStep
+            mode={mode}
             sources={sources}
             setSources={setSources}
             scan={scan}
             scanning={scanning}
-            transfer={transfer}
-            setTransfer={setTransfer}
             onScan={async () => {
               setScanning({ done: 0, total: 0 })
-              await api("/api/scan", { paths: sources })
+              await api("/api/scan", { paths: sources, mode })
               const poll = async () => {
                 const s = await api<Scan>("/api/scan")
                 if (s.running) {
@@ -197,28 +208,41 @@ export function WizardPage({ mode }: { mode: Mode }) {
                 setScanning(null)
                 setScan(s)
                 setChoices(Object.fromEntries(s.groups.map((g) => [g.id, { include: true, profile: g.profile }])))
+                setKinds({})
+                setExclude(new Set())
                 setFormat(null)
               }
               poll()
             }}
           />
         )}
-        {id === "cameras" && (
-          <CamerasStep scan={scan} choices={choices} setChoices={setChoices} extra={extra} setExtra={setExtra} />
+        {id === "assets" && (
+          <AssetsStep
+            scan={scan}
+            choices={choices}
+            setChoices={setChoices}
+            kinds={kinds}
+            setKinds={setKinds}
+            exclude={exclude}
+            setExclude={setExclude}
+            known={known}
+          />
         )}
         {id === "format" && <FormatStep fmt={fmt} setFormat={setFormat} scan={scan} groups={selected} />}
-        {id === "review" && (
-          <ReviewStep
+        {id === "actions" && (
+          <ActionsStep
             mode={mode}
             name={mode === "add" ? current?.name ?? "" : normalizeName(name)}
             folder={mode === "add" ? current?.folder ?? "" : `${root.replace(/\/$/, "")}/${normalizeName(name)}`}
             groups={selected}
-            extra={extra}
-            scan={scan}
-            transfer={transfer}
+            clipCount={clipCount}
+            otherCount={otherCount}
             fmt={fmt}
-            basic={basic}
-            setBasic={setBasic}
+            kindsPresent={kindsPresent}
+            chosen={chosen}
+            setChosen={setChosen}
+            values={values}
+            setValues={setValues}
           />
         )}
       </div>
@@ -229,7 +253,7 @@ export function WizardPage({ mode }: { mode: Mode }) {
           {step === 0 ? "Cancel" : "Back"}
         </Button>
         <div className="flex gap-2">
-          {id === "footage" && (
+          {id === "files" && mode === "new" && (
             <Button
               variant="ghost"
               onClick={() => {
@@ -238,18 +262,18 @@ export function WizardPage({ mode }: { mode: Mode }) {
                 next()
               }}
             >
-              Continue without footage
+              Continue without files
             </Button>
           )}
-          {id === "review" ? (
+          {id === "actions" ? (
             <Button
               size="lg"
-              disabled={mode === "add" && !selected.length && !extra.length}
+              disabled={mode === "add" && !clipCount && !otherCount}
               onClick={create}
               className="bg-brand-gradient text-black hover:opacity-90"
             >
               <SparklesIcon data-icon="inline-start" />
-              {mode === "add" ? "Add footage" : "Create project"}
+              {mode === "add" ? "Add to the project" : "Create project"}
             </Button>
           ) : (
             <Button disabled={!canNext} onClick={next}>
@@ -335,54 +359,51 @@ function ProjectStep({
   )
 }
 
-// ------------------------------------------------------------------ footage
+// ------------------------------------------------------------------ files
 
-const TRANSFER = [
-  {
-    value: "move",
-    icon: MoveIcon,
-    title: "Move",
-    about:
-      "Into 01_MEDIA/<camera>. No extra space on the same drive; across drives each file is copied, checked, then removed. If anything fails, every file goes back.",
-  },
-  { value: "copy", icon: CopyIcon, title: "Copy", about: "Originals stay untouched (e.g. a card you keep). Copies are checksum-verified." },
-  { value: "leave", icon: PinIcon, title: "Leave in place", about: "Import from where the files are now. The project folder stays empty." },
-]
+const TRANSFER_TEXT: Record<string, string> = {
+  move: "Files are moved into the project folder – across drives each is copied, checked, then removed. If anything fails, every file goes back.",
+  copy: "Files are copied into the project folder and checked; the originals stay untouched.",
+  link: "Files are linked: the project folder shows each one at its place, the files themselves stay where they are (e.g. on the card).",
+  leave: "Files stay where they are and are imported from there.",
+}
+const MODE_NAME: Record<string, string> = { move: "move", copy: "copy", link: "link", leave: "leave in place" }
 
-function FootageStep({
+function FilesStep({
+  mode,
   sources,
   setSources,
   scan,
   scanning,
-  transfer,
-  setTransfer,
   onScan,
 }: {
+  mode: Mode
   sources: string[]
   setSources: React.Dispatch<React.SetStateAction<string[]>>
   scan: Scan | null
   scanning: { done: number; total: number } | null
-  transfer: string
-  setTransfer: (v: string) => void
   onScan: () => void
 }) {
+  const { info, navigate } = useApp()
   const addFolder = async () => {
-    const r = await api<{ path: string }>("/api/pick-folder", { prompt: "Choose a footage folder or card" })
+    const r = await api<{ path: string }>("/api/pick-folder", { prompt: "Choose a card or folder" })
     if (r.path) setSources((s) => (s.includes(r.path) ? s : [...s, r.path]))
   }
   const addFiles = async () => {
-    const r = await api<{ paths: string[] }>("/api/pick-files", { prompt: "Choose clips to add" })
+    const r = await api<{ paths: string[] }>("/api/pick-files", { prompt: "Choose files to add" })
     if (r.paths?.length) setSources((s) => [...s, ...r.paths.filter((p) => !s.includes(p))])
   }
   const cams = scan ? new Set(scan.groups.map((g) => g.camera_key)).size : 0
+  const known = scan?.known?.length ?? 0
+  const how = info?.settings.transfer ?? info?.transfer ?? "move"
   return (
     <>
       <Card>
         <CardHeader>
           <CardTitle>Sources</CardTitle>
           <CardDescription>
-            Cards, folders or single clips. Camera, model and log profile come from each file's metadata; clips already
-            in the project are skipped.
+            Cards, folders or single files: footage, photos, graphics and GIFs, music, voice-over, sound effects, LUTs,
+            fonts. Camera, model and log profile come from each clip's metadata.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -409,7 +430,7 @@ function FootageStep({
             </ItemGroup>
           ) : (
             <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No footage added yet.
+              Nothing added yet.
             </div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -419,7 +440,7 @@ function FootageStep({
             </Button>
             <Button variant="outline" onClick={addFiles}>
               <FilePlusIcon data-icon="inline-start" />
-              Add clips…
+              Add files…
             </Button>
             <Button disabled={!sources.length || !!scanning} onClick={onScan} className="ml-auto">
               <ScanSearchIcon data-icon="inline-start" />
@@ -429,7 +450,7 @@ function FootageStep({
           {scanning && (
             <Progress value={scanning.total ? (scanning.done / scanning.total) * 100 : null}>
               <span className="text-sm text-muted-foreground">
-                {scanning.total ? `Reading ${scanning.done} of ${scanning.total} files…` : "Looking for video files…"}
+                {scanning.total ? `Reading ${scanning.done} of ${scanning.total} files…` : "Looking for files…"}
               </span>
             </Progress>
           )}
@@ -439,36 +460,28 @@ function FootageStep({
       {scan && !scanning && (
         <Card className="animate-in fade-in-0">
           <CardHeader>
-            <CardTitle>{scan.groups.length ? "Found" : "No video files found"}</CardTitle>
-            {scan.groups.length > 0 && (
+            <CardTitle>{scan.count ? "Found" : "Nothing davigen can use"}</CardTitle>
+            {!!scan.count && (
               <CardDescription>
-                {scan.clip_count} clips · {cams} {cams === 1 ? "camera" : "cameras"} · {fmtBytes(scan.size || 0)}
+                {scan.count} files · {fmtBytes(scan.size || 0)}
+                {mode === "add" && known > 0 && ` · ${known} already in the project (left as they are)`}
               </CardDescription>
             )}
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <ItemGroup className="gap-2">
-              {scan.groups.map((g) => (
-                <Item key={g.id} variant="outline">
-                  <ItemMedia>
-                    <CameraAvatar name={g.camera_name} thumb={g.thumb} className="size-10" />
-                  </ItemMedia>
-                  <ItemContent>
-                    <ItemTitle>{g.camera_name}</ItemTitle>
-                    <ItemDescription>
-                      {g.count} clips · {g.profile_label}
-                    </ItemDescription>
-                  </ItemContent>
-                  <ItemActions>
-                    <Badge variant={CONFIDENCE[g.confidence]?.[1] ?? "outline"}>
-                      {CONFIDENCE[g.confidence]?.[0] ?? g.confidence}
-                    </Badge>
-                  </ItemActions>
-                </Item>
-              ))}
-            </ItemGroup>
+          <CardContent className="flex flex-wrap gap-2">
+            {scan.groups.length > 0 && (
+              <Badge variant="secondary">
+                <FilmIcon />
+                {scan.clip_count} camera clips · {cams} {cams === 1 ? "camera" : "cameras"}
+              </Badge>
+            )}
+            {scan.kinds.map((k) => (
+              <Badge key={k.kind} variant="outline">
+                {k.count} · {k.label}
+              </Badge>
+            ))}
             {scan.errors.length > 0 && (
-              <Alert variant="destructive">
+              <Alert variant="destructive" className="mt-2">
                 <TriangleAlertIcon />
                 <AlertTitle>{scan.errors.length} files couldn't be read</AlertTitle>
                 <AlertDescription>
@@ -484,31 +497,16 @@ function FootageStep({
         </Card>
       )}
 
-      <FieldSet>
-        <FieldLegend>Transfer into the project</FieldLegend>
-        <RadioGroup value={transfer} onValueChange={(v) => setTransfer(String(v))} className="grid gap-3 md:grid-cols-3">
-          {TRANSFER.map((t) => (
-            <FieldLabel key={t.value} htmlFor={`t-${t.value}`}>
-              <Field orientation="horizontal">
-                <FieldContent>
-                  <FieldTitle>
-                    <t.icon className="size-4" />
-                    {t.title}
-                  </FieldTitle>
-                  <FieldDescription>{t.about}</FieldDescription>
-                </FieldContent>
-                <RadioGroupItem value={t.value} id={`t-${t.value}`} />
-              </Field>
-            </FieldLabel>
-          ))}
-        </RadioGroup>
-        {scan?.size ? (
-          <FieldDescription>
-            {transfer === "move" && `${fmtBytes(scan.size)} will be moved. On the same drive this needs no extra space.`}
-            {transfer === "copy" && `${fmtBytes(scan.size)} will be copied – that much free space is needed on the project drive.`}
-          </FieldDescription>
-        ) : null}
-      </FieldSet>
+      <Alert>
+        <FolderInputIcon />
+        <AlertTitle>Into the project: {MODE_NAME[how]}</AlertTitle>
+        <AlertDescription>{TRANSFER_TEXT[how]}</AlertDescription>
+        <AlertAction>
+          <Button size="xs" variant="ghost" onClick={() => navigate("settings")}>
+            Change…
+          </Button>
+        </AlertAction>
+      </Alert>
     </>
   )
 }
@@ -622,171 +620,117 @@ function GroupCard({ g, choice, onChange }: { g: ScanGroup; choice: Choice; onCh
   )
 }
 
-function ExtraCard({ x, onChange, onRemove }: { x: Extra; onChange: (x: Extra) => void; onRemove: () => void }) {
-  const { info } = useApp()
-  const src = useSource(x.profile, x.camera_key, x.camera_name)
-  const cam = info?.cameras.find((c) => c.key === x.camera_key)
-  const ids = x.profiles.length ? x.profiles : cam ? cam.profiles : (info?.profiles ?? []).map((p) => p.id)
-  const options = ids.map((id) => ({ id, label: info?.profiles.find((p) => p.id === id)?.label ?? id }))
-  return (
-    <Card className="animate-in fade-in-0 zoom-in-95">
-      <CardContent className="flex gap-4">
-        <CameraAvatar name={x.camera_name} thumb={x.thumb} className="size-20" />
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{x.camera_name}</span>
-            <Badge variant="outline">no footage yet</Badge>
-          </div>
-          <p className="text-xs text-muted-foreground">The group is prepared now – add clips later with “Add footage”.</p>
-          <ProfileSelect value={x.profile} options={options} onChange={(profile) => onChange({ ...x, profile })} />
-          <SourceLine src={src} />
-        </div>
-        <Button size="icon-sm" variant="ghost" aria-label="Remove" onClick={onRemove}>
-          <XIcon />
-        </Button>
-      </CardContent>
-    </Card>
-  )
-}
-
-function CamerasStep({
+function AssetsStep({
   scan,
   choices,
   setChoices,
-  extra,
-  setExtra,
+  kinds,
+  setKinds,
+  exclude,
+  setExclude,
+  known,
 }: {
   scan: Scan | null
   choices: Record<string, Choice>
   setChoices: React.Dispatch<React.SetStateAction<Record<string, Choice>>>
-  extra: Extra[]
-  setExtra: React.Dispatch<React.SetStateAction<Extra[]>>
+  kinds: Record<string, string>
+  setKinds: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  exclude: Set<string>
+  setExclude: React.Dispatch<React.SetStateAction<Set<string>>>
+  known: Set<string>
 }) {
-  const { info, setInfo } = useApp()
-  const [q, setQ] = React.useState("")
-  const [hits, setHits] = React.useState<Hit[]>([])
-  const [brand, setBrand] = React.useState("")
-  React.useEffect(() => {
-    if (!q.trim()) return setHits([])
-    const t = window.setTimeout(async () => {
-      setHits((await api<{ results: Hit[] }>(`/api/catalog?${new URLSearchParams({ q: q.trim() })}`)).results)
-    }, 150)
-    return () => window.clearTimeout(t)
-  }, [q])
-
-  const add = async (cam: Hit, persist: boolean) => {
-    if (persist) {
-      const r = await api<{ ok: boolean; camera: Hit; error?: string }>("/api/cameras", {
-        name: cam.name,
-        brand: cam.brand,
-        profiles: cam.profiles,
-        thumb: cam.thumb,
-      })
-      if (!r.ok) return notify("Camera not added", r.error, "error")
-      cam = r.camera
-      if (info) setInfo({ ...info, cameras: [{ ...cam, user: true }, ...info.cameras] })
-    }
-    setExtra((x) => [
-      ...x,
-      { camera_key: cam.key, camera_name: cam.name, profile: cam.profiles[0], profiles: cam.profiles, thumb: cam.thumb },
-    ])
-    setQ("")
-  }
+  const { info } = useApp()
   const groups = scan?.groups ?? []
-  const brands = (info?.brands ?? []).map((b) => ({ value: b, label: b }))
+  const kindItems = Object.entries(info?.kinds ?? {})
+    .filter(([k]) => k !== "camera")
+    .map(([value, label]) => ({ value, label }))
   return (
     <>
-      <p className="text-sm text-muted-foreground">
-        Each camera and log profile becomes a colour group. Check the profile – it decides the input transform.
-      </p>
-      <div className="flex flex-col gap-3">
-        {groups.map((g) => (
-          <GroupCard
-            key={g.id}
-            g={g}
-            choice={choices[g.id]}
-            onChange={(c) => setChoices((all) => ({ ...all, [g.id]: c }))}
-          />
-        ))}
-        {extra.map((x, i) => (
-          <ExtraCard
-            key={`${x.camera_key}-${i}`}
-            x={x}
-            onChange={(n) => setExtra((all) => all.map((y, j) => (j === i ? n : y)))}
-            onRemove={() => setExtra((all) => all.filter((_, j) => j !== i))}
-          />
-        ))}
-        {!groups.length && !extra.length && (
-          <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-            No footage scanned. Add the cameras you will use below, or continue with an empty project.
-          </div>
-        )}
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CameraIcon className="size-4" />
-            Add a camera without footage
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Input
-            placeholder="Search model or brand – Air 3, FX3, X-H2S, Pocket 3…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            spellCheck={false}
-          />
-          {q.trim() && (
-            <>
-              <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-                {hits.map((c) => (
-                  <button
-                    key={c.key}
-                    type="button"
-                    onClick={() => add(c, !c.known)}
-                    className="flex items-center gap-3 rounded-xl border p-2 text-left transition-colors hover:bg-muted animate-in fade-in-0"
+      {groups.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-muted-foreground">
+            Each camera and log profile becomes a colour group. Check the profile – it decides the input transform.
+          </p>
+          {groups.map((g) => (
+            <GroupCard
+              key={g.id}
+              g={g}
+              choice={choices[g.id]}
+              onChange={(c) => setChoices((all) => ({ ...all, [g.id]: c }))}
+            />
+          ))}
+        </div>
+      )}
+      {(scan?.kinds ?? []).map((k) => (
+        <Card key={k.kind}>
+          <CardHeader>
+            <CardTitle className="text-base">{k.label}</CardTitle>
+            <CardDescription>
+              {k.count} files · {fmtBytes(k.size)}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-1.5">
+            {k.assets.map((a) => {
+              const off = exclude.has(a.id)
+              const already = known.has(a.id)
+              return (
+                <div
+                  key={a.id}
+                  className={cn("flex flex-wrap items-center gap-2 rounded-lg px-2 py-1", (off || already) && "opacity-50")}
+                >
+                  <Checkbox
+                    checked={!off && !already}
+                    disabled={already}
+                    onCheckedChange={(on) =>
+                      setExclude((s) => {
+                        const n = new Set(s)
+                        if (on) n.delete(a.id)
+                        else n.add(a.id)
+                        return n
+                      })
+                    }
+                    aria-label={`Use ${a.name}`}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs" title={a.source}>
+                    {a.name}
+                  </span>
+                  {already && (
+                    <Badge variant="outline" className="font-normal">
+                      in the project
+                    </Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {a.info.duration ? fmtDuration(a.info.duration) : a.info.width ? `${a.info.width}×${a.info.height}` : ""}
+                  </span>
+                  <Select
+                    items={kindItems}
+                    value={kinds[a.id] ?? k.kind}
+                    onValueChange={(v) => v && setKinds((all) => ({ ...all, [a.id]: String(v) }))}
                   >
-                    <CameraAvatar name={c.name} thumb={c.thumb} className="size-12" />
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate text-sm font-medium">{c.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {c.brand}
-                        {c.year ? ` · ${c.year}` : ""}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 p-3 text-sm">
-                <span className="text-muted-foreground">
-                  Not listed? Add <b className="text-foreground">{q.trim()}</b> as your own camera:
-                </span>
-                <Select items={brands} value={brand} onValueChange={(v) => setBrand(String(v ?? ""))}>
-                  <SelectTrigger size="sm" className="min-w-32">
-                    <SelectValue placeholder="Brand…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {brands.map((b) => (
-                        <SelectItem key={b.value} value={b.value}>
-                          {b.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <Button size="sm" variant="outline" onClick={() => add({ key: "", name: q.trim(), brand, profiles: [], thumb: "" }, true)}>
-                  Add
-                </Button>
-              </div>
-              {hits.some((c) => c.thumb) && (
-                <p className="text-xs text-muted-foreground">Photos: Wikimedia Commons · Data: Wikidata</p>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+                    <SelectTrigger size="sm" className="min-w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {kindItems.map((i) => (
+                          <SelectItem key={i.value} value={i.value}>
+                            {i.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      ))}
+      {!groups.length && !(scan?.kinds ?? []).length && (
+        <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+          No files scanned – the project starts empty. Add files any time later from the overview.
+        </div>
+      )}
     </>
   )
 }
@@ -1030,13 +974,7 @@ function FormatStep({
   )
 }
 
-// ------------------------------------------------------------------ review
-
-const TRANSFER_TEXT: Record<string, string> = {
-  move: "moved into 01_MEDIA – put back automatically if anything fails",
-  copy: "copied into 01_MEDIA and verified – originals untouched",
-  leave: "imported from where they are",
-}
+// ------------------------------------------------------------------ start
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -1049,28 +987,32 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
   )
 }
 
-function ReviewStep({
+function ActionsStep({
   mode,
   name,
   folder,
   groups,
-  extra,
-  scan,
-  transfer,
+  clipCount,
+  otherCount,
   fmt,
-  basic,
-  setBasic,
+  kindsPresent,
+  chosen,
+  setChosen,
+  values,
+  setValues,
 }: {
   mode: Mode
   name: string
   folder: string
   groups: (ScanGroup & { profile: string; group_name: string })[]
-  extra: Extra[]
-  scan: Scan | null
-  transfer: string
+  clipCount: number
+  otherCount: number
   fmt: Fmt
-  basic: boolean
-  setBasic: (v: boolean) => void
+  kindsPresent: Set<string>
+  chosen: Set<string>
+  setChosen: React.Dispatch<React.SetStateAction<Set<string>>>
+  values: Record<string, Values>
+  setValues: React.Dispatch<React.SetStateAction<Record<string, Values>>>
 }) {
   const { info } = useApp()
   const [preview, setPreview] = React.useState<{
@@ -1079,73 +1021,131 @@ function ReviewStep({
     fits_free: boolean
     free_size: [number, number]
   } | null>(null)
+  const [open, setOpen] = React.useState("")
   React.useEffect(() => {
     if (mode === "new") api("/api/preview", { format: formatBody(fmt) }).then(setPreview)
   }, [mode, fmt])
-  const clips = groups.reduce((n, g) => n + g.count, 0)
-  const all = [
-    ...new Set([...groups.map((g) => g.group_name), ...extra.map((x) => `G_${x.camera_key}_${info?.shorts[x.profile] || x.profile}`)]),
-  ]
+  if (!info) return null
+  const actions = info.actions.filter((a) => a.on_import && a.kinds.some((k) => kindsPresent.has(k)))
+  const all = [...new Set(groups.map((g) => g.group_name))]
   const size =
-    preview && !info?.studio && !preview.fits_free
+    preview && !info.studio && !preview.fits_free
       ? `${preview.free_size[0]} × ${preview.free_size[1]} (Free) · ${fmt.width} × ${fmt.height} with Studio`
       : `${fmt.width} × ${fmt.height}`
   return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <Block title="Project">
-        <span className="font-medium">{name || "Name missing"}</span>
-        <span className="font-mono text-xs text-muted-foreground">{folder}/</span>
-      </Block>
-      <Block title="Footage">
-        <span>{clips ? `${clips} clips · ${fmtBytes(scan?.size || 0)}` : "No footage"}</span>
-        {clips > 0 && <span className="text-muted-foreground">{TRANSFER_TEXT[transfer]}</span>}
-      </Block>
-      <Block title="Color groups">
-        {all.length ? (
-          <div className="flex flex-wrap gap-1.5">
-            {all.map((g) => (
-              <Badge key={g} variant="secondary" className="font-mono font-normal">
-                {g}
-              </Badge>
-            ))}
-          </div>
-        ) : (
-          <span>None</span>
-        )}
-        <span className="text-xs text-muted-foreground">Camera log → DaVinci Wide Gamut / Intermediate → Rec.709 Gamma 2.4</span>
-      </Block>
-      {mode === "new" && preview && (
-        <>
-          <Block title="Format">
-            <span>
-              {size} · {fmt.custom ? "custom" : fmt.aspect} · {fpsLabel(fmt.fps)} fps
-            </span>
-            <span className="text-muted-foreground">{preview.deliveries.join(" · ") || "No deliveries"}</span>
-          </Block>
-          <Block title="Timelines">
-            {preview.timelines.map((t) => (
-              <span key={t} className="font-mono text-xs">
-                {t}
+    <>
+      <FieldSet>
+        <FieldLegend>Also do now</FieldLegend>
+        <FieldDescription>
+          Sorting, colour groups and the node structure always happen. These can be chosen – now, or later on the Assets
+          page for everything that needs them.
+        </FieldDescription>
+        {actions.length === 0 && <p className="text-sm text-muted-foreground">Nothing to choose for these files.</p>}
+        <div className="flex flex-col gap-2">
+          {actions.map((a) => {
+            const on = chosen.has(a.id)
+            return (
+              <Card key={a.id} size="sm" className={cn("transition-colors", on && "ring-brand/40")}>
+                <CardContent className="flex flex-col gap-3">
+                  <Field orientation="horizontal">
+                    <FieldContent>
+                      <FieldTitle>
+                        <SparklesIcon className="size-4 text-brand" />
+                        {a.label}
+                      </FieldTitle>
+                      <FieldDescription>{a.about}</FieldDescription>
+                    </FieldContent>
+                    <Switch
+                      checked={on}
+                      onCheckedChange={(v) =>
+                        setChosen((s) => {
+                          const n = new Set(s)
+                          if (v) n.add(a.id)
+                          else n.delete(a.id)
+                          return n
+                        })
+                      }
+                    />
+                  </Field>
+                  {on && a.inputs.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setOpen(open === a.id ? "" : a.id)}
+                        className="flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <ChevronDownIcon className={cn("size-3 transition-transform", open === a.id && "rotate-180")} />
+                        {open === a.id ? "Hide settings" : "Settings"}
+                      </button>
+                      {open === a.id && (
+                        <div className="animate-in fade-in-0 slide-in-from-top-1">
+                          <InputForm
+                            inputs={a.inputs}
+                            form={a.form}
+                            compact
+                            values={values[a.id] ?? {}}
+                            onChange={(v) => setValues((all) => ({ ...all, [a.id]: v }))}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      </FieldSet>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <Block title="Project">
+          <span className="font-medium">{name || "Name missing"}</span>
+          <span className="font-mono text-xs text-muted-foreground">{folder}/</span>
+        </Block>
+        <Block title="Files">
+          <span>
+            {clipCount ? `${clipCount} camera clips` : "No camera clips"}
+            {otherCount ? ` · ${otherCount} other files` : ""}
+          </span>
+        </Block>
+        <Block title="Color groups">
+          {all.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {all.map((g) => (
+                <Badge key={g} variant="secondary" className="font-mono font-normal">
+                  {g}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <span>None new</span>
+          )}
+          <span className="text-xs text-muted-foreground">Camera log → DaVinci Wide Gamut / Intermediate → Rec.709 Gamma 2.4</span>
+        </Block>
+        {mode === "new" && preview && (
+          <>
+            <Block title="Format">
+              <span>
+                {size} · {fmt.custom ? "custom" : fmt.aspect} · {fpsLabel(fmt.fps)} fps (timeline and playback)
               </span>
-            ))}
-          </Block>
-          <FieldLabel htmlFor="basic-on" className="md:col-span-1">
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldTitle>
-                  <SparklesIcon className="size-4 text-brand" />
-                  Basic correction
-                </FieldTitle>
-                <FieldDescription>
-                  Measure every clip and fill exposure, white balance, contrast and saturation in a grade version
-                  DAVIGEN_AUTO – your first pass, ready on the Color page.
-                </FieldDescription>
-              </FieldContent>
-              <Switch id="basic-on" checked={basic} onCheckedChange={setBasic} />
-            </Field>
-          </FieldLabel>
-        </>
-      )}
-    </div>
+              <span className="text-muted-foreground">{preview.deliveries.join(" · ") || "No deliveries"}</span>
+            </Block>
+            <Block title="Timelines">
+              {preview.timelines.map((t) => (
+                <span key={t} className="font-mono text-xs">
+                  {t}
+                </span>
+              ))}
+            </Block>
+            <Block title="Working folders">
+              <span className="text-xs text-muted-foreground">
+                Proxies, render cache and Resolve's project media go into 03_WORK, gallery stills into 02_RESOLVE – all
+                inside the project folder.
+              </span>
+            </Block>
+          </>
+        )}
+      </div>
+    </>
   )
 }

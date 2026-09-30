@@ -9,6 +9,12 @@ from .formats import Format
 from .resolve_api import ResolveError, open_pm_folder
 
 PM_FOLDER = "VIDEO_PROJECTS/ACTIVE"
+WORKING_FOLDERS = {                                  # Project Settings → Master Settings → Working Folders
+    "colorGalleryStillsLocation": "02_RESOLVE/03_GALLERY",
+    "perfCacheClipsLocation": "03_WORK/CACHE",       # render cache and optimized media
+    "projectMediaLocation": "03_WORK/PROJECT_MEDIA",
+}
+PROXY_FOLDER = "03_WORK/PROXIES"                     # no API key: set through the project template (template.py)
 
 
 def create(resolve, cfg: Config, name: str, base: Path, fmt: Format) -> tuple[object, list[str]]:
@@ -51,12 +57,33 @@ def apply_settings(project, cfg: Config, base: Path, fmt: Format) -> list[str]:
     for key, value in cfg.workflow["project"]["settings"].items():
         setting(key, value)
     setting("videoMonitorFormat", f"HD 1080p {fmt.resolve_fps}", quiet=True)   # only matters with a monitor card
-    setting("colorGalleryStillsLocation", base / cfg.workflow["folders"]["gallery"])
+    # everything Resolve writes lands in the project folder (proxies: through the project template)
+    for key, folder in WORKING_FOLDERS.items():
+        (base / folder).mkdir(parents=True, exist_ok=True)
+        setting(key, base / folder)
+
+    # a later setting can reset an earlier one (the render cache mode resets the proxy resolution): read all back
+    for key, value in cfg.workflow["project"]["settings"].items():
+        if str(project.GetSetting(key)) != str(value):
+            warnings.append(f"Resolve changed {key} back to {project.GetSetting(key)} (davigen set {value})")
 
     if not _same_number(project.GetSetting("timelinePlaybackFrameRate"), fmt.resolve_fps):
         warnings.append(f"MANUAL: Project Settings → Master Settings → set Playback frame rate to {fmt.resolve_fps} "
                         "(Resolve's scripting API can't set it)")
     return warnings
+
+
+def check_settings(project, base: Path, fmt: Format) -> list[dict]:
+    """The settings that matter, read back: [{"name", "want", "got", "ok"}] (the project check shows them)."""
+    rows = [("Timeline frame rate", fmt.resolve_fps, project.GetSetting("timelineFrameRate"), "number"),
+            ("Playback frame rate", fmt.resolve_fps, project.GetSetting("timelinePlaybackFrameRate"), "number")]
+    rows += [(f"Working folder · {key}", str(base / folder), project.GetSetting(key), "path")
+             for key, folder in WORKING_FOLDERS.items()]
+    out = []
+    for name, want, got, kind in rows:
+        ok = _same_number(got, want) if kind == "number" else str(got or "").rstrip("/") == want.rstrip("/")
+        out.append({"name": name, "want": str(want), "got": str(got or ""), "ok": ok})
+    return out
 
 
 def _same_number(a, b) -> bool:

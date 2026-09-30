@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-SEARCH = ["/opt/homebrew/bin", "/usr/local/bin", str(Path(__file__).resolve().parents[2] / "runtime" / "ffmpeg")]
+SEARCH = ["/opt/homebrew/bin", "/usr/local/bin", str(Path(__file__).resolve().parents[1] / "runtime" / "ffmpeg")]
 
 
 class DecodeError(RuntimeError):
@@ -86,3 +86,12 @@ def audio(path: str, rate: int = 16000, duration: float = 0.0, start: float = 0.
     except DecodeError:
         return np.zeros(0, dtype="float32")
     return np.frombuffer(raw, dtype="<f4").copy()
+
+
+def audio_stereo(path: str, rate: int = 22050) -> np.ndarray:
+    """Stereo audio as float32 (n, 2); a mono file comes back with both channels the same."""
+    try:
+        raw = _run(["-i", path, "-vn", "-ac", "2", "-ar", str(rate), "-f", "f32le", "-"], 600)
+    except DecodeError:
+        return np.zeros((0, 2), dtype="float32")
+    return np.frombuffer(raw, dtype="<f4").copy().reshape(-1, 2)

@@ -17,7 +17,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__, catalog, creator, filesystem, formats, naming, posters, providers, scanner, transfer, transforms
-from . import update
+from . import delete, update
+from .pipeline import assets as pl_assets, flows as pl_flows, runner as pl_runner, state as pl_state
+from .pipeline.core import Context
 from .config import DATA_DIR, Camera, Config, save_settings, settings
 from .formats import Format
 from .project import PM_FOLDER
@@ -28,9 +30,11 @@ from .resolve_api import capabilities, find_project, version
 UI_DIR = Path(__file__).resolve().parent / "ui"
 # Resolve's scripting API isn't thread-safe: requests that talk to Resolve run one at a time.
 # (Background flows use Resolve from their own thread; the UI doesn't query Resolve while one runs.)
-RESOLVE_ROUTES = {"/api/timeline/open", "/api/edit/last", "/api/edit/preview", "/api/info", "/api/current", "/api/projects", "/api/open-project", "/api/vendor-lut",
-                  "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto", "/api/basic/learn",
-                  "/api/basic/clip", "/api/basic/look"}
+RESOLVE_ROUTES = {"/api/timeline/open", "/api/info", "/api/current", "/api/projects", "/api/open-project",
+                  "/api/vendor-lut", "/api/preview", "/api/scan", "/api/basic/report", "/api/basic/goto",
+                  "/api/basic/learn", "/api/basic/clip", "/api/basic/look", "/api/assets", "/api/create", "/api/add",
+                  "/api/apply", "/api/project/delete"}
+TRANSFER_MODES = (transfer.MOVE, transfer.COPY, transfer.LINK, transfer.LEAVE)
 IDLE_TIMEOUT = 600         # seconds without any browser tab before davigen ends itself (no job running)
 
 
@@ -41,20 +45,20 @@ class App:
         self.last_seen = time.time()
         self.scan_state: dict = {"running": False, "done": 0, "total": 0, "groups": [], "errors": []}
         self.clips: list[scanner.ClipInfo] = []
-        self.reporter: creator.Reporter | None = None
+        self.assets: list[pl_assets.Asset] = []          # the last scan, classified
+        self.reporter: creator.Reporter | pl_runner.Run | None = None
         self.job: threading.Thread | None = None
         self.stop = threading.Event()
         self.catalog_state: dict = {"running": False, "done": 0, "total": 0, "what": "", "error": ""}
         self.recovery: list[dict] = []
-        self.resolve_lock = threading.Lock()
+        self.run_recovery: list[dict] = []
+        self.resolve_lock = threading.RLock()       # re-entrant: a route may call a helper that locks too
         self.updater = update.Updater()
         self._records: dict[Path, tuple[float, dict]] = {}
         # before | after pictures: made one at a time, outside the Resolve lock, the newest request first
         self._render_lock = threading.Lock()
         self._render_gen = 0
         self._pictures: dict[tuple, bytes] = {}
-        self._songs: dict[tuple, dict] = {}
-        self._edit_paths: set[str] = set()
 
     # ------------------------------------------------------------------ app info
     def info(self) -> dict:
@@ -74,8 +78,11 @@ class App:
                 "deliveries": [{"id": d["id"], "label": d["label"], "default": bool(d.get("default")),
                                 "resolution": d["resolution"]} for d in cfg.workflow["deliver"]],
             },
-            "transfer": cfg.workflow["project"]["transfer"],
+            "transfer": self.transfer_mode(),
             "basic_default": basic_settings.load(cfg.workflow)["wizard_default"],
+            "actions": pl_flows.optional(),
+            "defaults": {"actions": self.default_actions(), "song_markers": user.get("song_markers")},
+            "kinds": {k: v["label"] for k, v in cfg.workflow["assets"]["kinds"].items()},
             "default_root": user.get("default_root") or cfg.workflow["project"]["default_root"],
             "profiles": [{"id": p.id, "label": p.label} for p in cfg.profiles.values()],
             "shorts": {p.id: p.short for p in cfg.profiles.values()},
@@ -86,6 +93,7 @@ class App:
             "brands": sorted(cfg.brands),
             "catalog": self.catalog_info(),
             "recovery": self.recovery,
+            "run_recovery": self.run_recovery,
         }
 
     def preview(self, body: dict) -> dict:
@@ -119,20 +127,30 @@ class App:
 
     # ------------------------------------------------------------------ scanning
     def start_scan(self, body: dict) -> dict:
+        """Look at every file under the chosen files and folders: camera clips grouped by camera and profile, every
+        other kind listed. Files the open project already has are marked (an import skips them)."""
         if self.scan_state["running"]:
             return {"ok": False, "error": "A scan is already running"}
         paths = [p for p in body.get("paths", []) if p]
-        self.scan_state = {"running": True, "done": 0, "total": 0, "groups": [], "errors": [], "paths": paths}
+        self.scan_state = {"running": True, "done": 0, "total": 0, "groups": [], "kinds": [], "errors": [],
+                           "paths": paths}
+        known = self._known_ids() if body.get("mode") == "add" else set()
 
         def work():
             try:
-                def progress(i, n, _info):
+                def progress(i, n):
                     self.scan_state.update(done=i, total=n)
-                self.clips = scanner.scan(paths, self.cfg, progress=progress)
+                self.assets, self.clips, errors = pl_assets.classify(paths, self.cfg, progress=progress)
                 self._regroup()
-                self.scan_state["errors"] = [{"name": c.name, "error": c.error} for c in self.clips if c.error]
-                self.scan_state["suggest"] = formats.suggest(self.cfg, self.clips, capabilities(self.resolve)["studio"])
-                self.scan_state["size"] = sum(Path(c.path).stat().st_size for c in self.clips if not c.error)
+                self.scan_state["kinds"] = pl_assets.summary([a for a in self.assets if a.kind != "camera"],
+                                                             self.cfg)
+                self.scan_state["errors"] = errors
+                cams = [c for c in self.clips if c.camera_key != "UNKNOWN_CAMERA"]
+                self.scan_state["suggest"] = formats.suggest(self.cfg, cams or self.clips,
+                                                             capabilities(self.resolve)["studio"])
+                self.scan_state["size"] = sum(a.size for a in self.assets)
+                self.scan_state["count"] = len(self.assets)
+                self.scan_state["known"] = sorted(a.id for a in self.assets if a.id in known)
             except Exception as e:  # noqa: BLE001
                 self.scan_state["errors"] = [{"name": "Scan", "error": str(e)}]
             finally:
@@ -141,8 +159,17 @@ class App:
         threading.Thread(target=work, daemon=True).start()
         return {"ok": True}
 
+    def _known_ids(self) -> set[str]:
+        """Assets the open project has (called from /api/scan, which holds the Resolve lock)."""
+        try:
+            base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
+            return {a.id for a in pl_assets.AssetStore(base) if not a.removed}
+        except Exception:  # noqa: BLE001 - no davigen project open
+            return set()
+
     def _regroup(self):
-        groups = scanner.group_clips(self.clips)
+        clips = [c for c in self.clips if c.camera_key != "UNKNOWN_CAMERA"]
+        groups = scanner.group_clips(clips)
         cat = catalog.load()
         summaries = []
         for g in groups:
@@ -155,7 +182,7 @@ class App:
 
     # ------------------------------------------------------------------ flows
     def _start(self, steps, flow, *args) -> dict:
-        if self.job and self.job.is_alive():
+        if self.busy_job():
             return {"ok": False, "error": "Something is already running"}
         self.reporter = creator.Reporter(steps)
         self.job = threading.Thread(target=creator.run, args=(flow, self.resolve, self.cfg, *args),
@@ -163,11 +190,150 @@ class App:
         self.job.start()
         return {"ok": True}
 
+    def _run(self, ctx: Context, actions: list[str], assets: list, values: dict, redo=(), title: str = "") -> dict:
+        """Start a pipeline run in the background (the UI polls /api/progress)."""
+        if self.busy_job():
+            return {"ok": False, "error": "Something is already running"}
+        run = pl_runner.Run(ctx, actions, assets, values=values, redo=set(redo), title=title)
+        self.reporter = run
+        self.job = run.start()._thread
+        return {"ok": True}
+
+    def busy_job(self) -> bool:
+        return bool(self.job and self.job.is_alive())
+
+    def transfer_mode(self) -> str:
+        mode = settings().get("transfer") or self.cfg.workflow["project"]["transfer"]
+        return mode if mode in TRANSFER_MODES else transfer.MOVE
+
+    def default_actions(self) -> list[str]:
+        chosen = settings().get("default_actions")
+        if isinstance(chosen, list):
+            return chosen
+        return ["basic_correction"] if basic_settings.load(self.cfg.workflow)["wizard_default"] else []
+
+    def _context(self, base: Path | None = None, fmt: Format | None = None, spec: dict | None = None) -> Context:
+        """A pipeline context for the open project (or, with base/fmt/spec, for a new one)."""
+        user = {**settings(), "transfer": self.transfer_mode()}
+        if base is None:
+            proj = self.resolve.GetProjectManager().GetCurrentProject()
+            base = creator.project_base(proj)
+            fmt = creator.project_format(self.cfg, proj, base)
+        return Context(resolve=self.resolve, cfg=self.cfg, settings=user, base=base, fmt=fmt,
+                       store=pl_assets.AssetStore(base), spec=spec or {})
+
+    def _chosen(self, body: dict) -> tuple[list[str], dict]:
+        """The optional actions the user ticked, and every input given for them."""
+        optional = {a["id"] for a in pl_flows.optional()}
+        chosen = [a for a in body.get("actions", []) if a in optional]
+        values = {k: v for k, v in (body.get("values") or {}).items() if k in chosen and isinstance(v, dict)}
+        return chosen, values
+
+    def _scanned(self, body: dict) -> list[pl_assets.Asset]:
+        """The scanned assets as the user left them: kinds changed, files or camera groups left out, profiles."""
+        groups = {g["id"]: g for g in body.get("groups", [])}
+        kinds = {k: v for k, v in (body.get("kinds") or {}).items() if v in pl_assets.KINDS}
+        skip = set(body.get("exclude") or [])
+        out = []
+        for a in self.assets:
+            if a.id in skip:
+                continue
+            asset = pl_assets.Asset.from_dict(a.as_dict())
+            asset.kind = kinds.get(a.id, a.kind)
+            if asset.kind == "camera":
+                g = groups.get(f"{a.camera_key}:{a.profile}", {})
+                if g and not g.get("include", True):
+                    continue
+                profile = g.get("profile") or a.profile
+                if profile not in self.cfg.profiles:
+                    profile = "REC709"
+                asset.profile = profile
+                if not asset.camera_key or asset.camera_key == "UNKNOWN_CAMERA":
+                    asset.camera_key, asset.camera_name = "UNKNOWN_CAMERA", asset.camera_name or "Unknown camera"
+                asset.group = naming.group_name(asset.camera_key, self.cfg.profiles[profile].short)
+            out.append(asset)
+        return out
+
     def start_create(self, body: dict) -> dict:
-        return self._start(creator.NEW_PROJECT_STEPS, creator.new_project, self._plan(body))
+        name = naming.normalize(body.get("project", ""))
+        if not name:
+            return {"ok": False, "error": "Project name missing"}
+        root = body.get("root") or settings().get("default_root") or self.cfg.workflow["project"]["default_root"]
+        base = filesystem.project_dir(root, name)
+        if filesystem.info_file(base).exists():
+            return {"ok": False, "error": f"{base} already contains a davigen project"}
+        studio = capabilities(self.resolve)["studio"]
+        fmt = self._format(body)
+        if not studio and not formats.fits_free(self.cfg, fmt.width, fmt.height):
+            fmt.width, fmt.height = formats.clamp_free(self.cfg, fmt.width, fmt.height)
+        chosen, values = self._chosen(body)
+        ctx = self._context(base, fmt, {"new": True, "name": name})
+        return self._run(ctx, pl_flows.new_project(chosen), self._scanned(body), values, title=f"New project {name}")
 
     def start_add(self, body: dict) -> dict:
-        return self._start(creator.ADD_FOOTAGE_STEPS, creator.add_footage, self._plan(body))
+        """Import into the open project: only what isn't there yet; known files keep what was done to them."""
+        chosen, values = self._chosen(body)
+        ctx = self._context()
+        pl_state.adopt(ctx)
+        pl_state.reconcile(ctx)
+        assets = []
+        for a in self._scanned(body):
+            known = ctx.store.get(a.id)
+            if known is not None:
+                known.removed = False                     # brought in again after it was removed in Resolve
+                assets.append(known)
+            else:
+                assets.append(a)
+        return self._run(ctx, pl_flows.add(chosen), assets, values, title="Add to the project")
+
+    def start_apply(self, body: dict) -> dict:
+        """One or more actions on assets already in the project (the assets page), e.g. Basic correction for all."""
+        known = {a["id"] for a in pl_flows.optional()} | {"colour", "import_media", "make_importable", "assembly"}
+        chosen = [a for a in body.get("actions", []) if a in known]
+        if not chosen:
+            return {"ok": False, "error": "No action chosen"}
+        values = {k: v for k, v in (body.get("values") or {}).items() if k in chosen and isinstance(v, dict)}
+        ctx = self._context()
+        pl_state.adopt(ctx)
+        pl_state.reconcile(ctx)
+        wanted = set(body.get("assets") or [])
+        assets = [a for a in ctx.store if not a.removed and (not wanted or a.id in wanted)]
+        redo = [a for a in body.get("redo", []) if a in chosen]
+        return self._run(ctx, pl_flows.apply(chosen), assets, values, redo=redo,
+                         title=", ".join(pl_runner.all_actions()[a].label for a in chosen))
+
+    def run_input(self, body: dict) -> dict:
+        run = self.reporter
+        if not isinstance(run, pl_runner.Run):
+            return {"ok": False, "error": "Nothing is waiting"}
+        return {"ok": run.provide(body.get("step", ""), body.get("values") or {})}
+
+    def run_stop(self, body: dict) -> dict:
+        run = self.reporter
+        if isinstance(run, pl_runner.Run) and not run.done:
+            run.stop()
+            return {"ok": True}
+        return {"ok": False, "error": "Nothing to stop"}
+
+    def assets_list(self, q: dict) -> dict:
+        """Every asset of the open project with a status per action (the assets page)."""
+        try:
+            ctx = self._context()
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e), "assets": [], "actions": []}
+        live = not self.busy_job()                     # while a run works in Resolve: from the record only
+        if live:
+            pl_state.adopt(ctx)
+            pl_state.reconcile(ctx)
+        return {"ok": True, "live": live, **pl_state.table(ctx, live=live)}
+
+    def delete_project(self, body: dict) -> dict:
+        entry = next((p for p in filesystem.recent_projects(check=False) if p["folder"] == body.get("folder")), None)
+        if entry is None:
+            return {"ok": False, "error": "Unknown project"}
+        if body.get("confirm") != entry["name"]:
+            return {"ok": False, "error": "Type the project name to confirm"}
+        return self._start(delete.STEPS, delete.flow, {"entry": entry})
 
     def start_color(self, body: dict) -> dict:
         return self._start(creator.COLOR_STEPS, creator.refresh_color)
@@ -184,32 +350,6 @@ class App:
                    "timeline": body.get("timeline", ""), "spread": bool(body.get("spread"))}
         return self._start(basic.STEPS, basic.flow, options)
 
-    def start_edit(self, body: dict) -> dict:
-        """Edit Assist; with pick_music the user chooses a music file for the rough cut first."""
-        from .edit import decode, run as edit  # noqa: PLC0415
-        if not decode.available():
-            return {"ok": False, "error": "Edit Assist needs ffmpeg: install it with 'brew install ffmpeg' "
-                                          "(https://brew.sh), then try again"}
-        music = body.get("music") or ""
-        if music and not _is_audio(music):
-            return {"ok": False, "error": "That music file can't be read"}
-        if body.get("pick_music") and not music:
-            res = subprocess.run(["osascript", "-e", 'POSIX path of (choose file with prompt "Music for the rough '
-                                  'cut" of type {"public.audio"})'], capture_output=True, text=True,
-                                 encoding="utf-8", errors="replace")
-            music = res.stdout.strip()
-            if res.returncode != 0 or not music:
-                return {"ok": False, "error": "No music chosen"}
-        return self._start(edit.STEPS, edit.flow, {"music": music, "transcribe": bool(body.get("transcribe")),
-                                                   "seconds": float(body.get("seconds") or 0),
-                                                   "pace": body.get("pace") if body.get("pace") in
-                                                   ("calm", "auto", "fast") else "auto"})
-
-    def start_edit_preview(self, body: dict) -> dict:
-        from .edit import run as edit  # noqa: PLC0415
-        base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
-        return self._start(edit.PREVIEW_STEPS, edit.preview_flow, {"base": str(base)})
-
     def open_timeline(self, body: dict) -> dict:
         """Show one of davigen's timelines on Resolve's Edit page."""
         from .resolve_api import find_timeline  # noqa: PLC0415
@@ -223,77 +363,6 @@ class App:
         ok = bool(proj.SetCurrentTimeline(tl))
         self.resolve.OpenPage("edit")
         return {"ok": ok}
-
-    def edit_preview_file(self) -> Path:
-        with self.resolve_lock:
-            base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
-        rec = json.loads((base / "00_ADMIN" / "PROJECT_INFO" / "edit_assist.json").read_text(encoding="utf-8"))
-        target = Path(rec.get("preview") or "")
-        if not target.is_file() or base not in target.parents:
-            raise FileNotFoundError("no preview")
-        return target
-
-    # ------------------------------------------------------------------ edit assist: music and results
-    def pick_music(self, body: dict) -> dict:
-        res = subprocess.run(["osascript", "-e", 'POSIX path of (choose file with prompt "Music for the rough cut" '
-                              'of type {"public.audio"})'], capture_output=True, text=True, encoding="utf-8",
-                             errors="replace")
-        path = res.stdout.strip()
-        return {"path": path, "name": Path(path).name} if res.returncode == 0 and path else {"path": ""}
-
-    def music_info(self, q: dict) -> dict:
-        """Tempo, bars, sections and a small waveform of a song, and which part a 30/60/90 s cut would use."""
-        from .edit import decode, music as music_mod, roughcut  # noqa: PLC0415
-        path = (q.get("path") or [""])[0]
-        if not _is_audio(path):
-            return {"ok": False, "error": "That music file can't be read"}
-        key = (path, Path(path).stat().st_mtime)
-        if key not in self._songs:
-            samples = decode.audio(path, music_mod.RATE)
-            if len(samples) < music_mod.RATE * 5:
-                return {"ok": False, "error": "No usable audio in that file"}
-            track = music_mod.analyse(samples)
-            bins = 240
-            chunk = max(1, len(samples) // bins)
-            rms = [float((samples[i * chunk:(i + 1) * chunk] ** 2).mean() ** 0.5) for i in range(bins)]
-            top = max(rms) or 1.0
-            self._songs = {key: {"ok": True, "name": Path(path).name, "path": path, "duration": track.duration,
-                                 "tempo": track.tempo, "bars": len(track.downbeats), "sections": track.sections,
-                                 "wave": [round(r / top, 3) for r in rms],
-                                 "windows": {str(s): roughcut.music_window(track, s) for s in (30, 60, 90)}}}
-        return self._songs[key]
-
-    def edit_last(self, q: dict) -> dict:
-        """The last Edit Assist run of the open project, for the results view."""
-        proj = self.resolve.GetProjectManager().GetCurrentProject()
-        try:
-            base = creator.project_base(proj)
-        except Exception:  # noqa: BLE001
-            return {"ok": False}
-        target = base / "00_ADMIN" / "PROJECT_INFO" / "edit_assist.json"
-        if not target.exists():
-            return {"ok": False}
-        rec = json.loads(target.read_text(encoding="utf-8"))
-        self._edit_paths = {c.get("path") for c in rec.get("clips", []) if c.get("path")}
-        music = rec.get("music") or {}
-        preview = Path(rec.get("preview") or "")
-        return {"ok": True, "date": rec.get("date", ""), "selects_timeline": rec.get("selects_timeline", ""),
-                "preview": int(preview.stat().st_mtime) if preview.is_file() else 0,
-                "rough_cut": rec.get("rough_cut", ""), "music_file": rec.get("music_file", ""),
-                "music": {k: music.get(k) for k in ("duration", "tempo", "sections")} if music else None,
-                "music_window": rec.get("music_window"), "pace": rec.get("pace", ""),
-                "shots": rec.get("shots", []), "selects": rec.get("selects", []),
-                "clips": [{k: c.get(k) for k in ("id", "name", "path", "duration", "segments")}
-                          for c in rec.get("clips", [])]}
-
-    def edit_frame(self, q: dict) -> bytes:
-        path = (q.get("path") or [""])[0]
-        if path not in self._edit_paths:
-            raise FileNotFoundError("not a clip of the last Edit Assist run")
-        with self.resolve_lock:
-            base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
-        width = min(max(int((q.get("w") or ["320"])[0] or 320), 96), 960)
-        return posters.clip_frame(base, path, float((q.get("s") or ["0"])[0] or 0), width)
 
     def start_basic_carry(self, body: dict) -> dict:
         from .basic import carry  # noqa: PLC0415
@@ -468,28 +537,6 @@ class App:
                       f.get("aspect") or formats.aspect_of(self.cfg, width, height),
                       [d for d in f.get("deliveries", default.deliveries)])
 
-    def _plan(self, body: dict) -> creator.Plan:
-        """Build the plan from the scan result plus the user's choices (profiles, extras, format, transfer)."""
-        chosen = {g["id"]: g for g in body.get("groups", []) if g.get("include", True)}
-        groups: dict[tuple[str, str], creator.GroupPlan] = {}
-        for g in scanner.group_clips(self.clips):
-            if g.id not in chosen:
-                continue
-            profile = chosen[g.id].get("profile") or g.profile
-            key = (g.camera_key, profile)
-            plan_g = groups.setdefault(key, creator.GroupPlan(g.camera_key, g.camera_name, profile,
-                                                              make=g.make, model=g.model))
-            plan_g.clips += g.clips
-        for extra in body.get("extra", []):
-            key = (extra["camera_key"], extra["profile"])
-            groups.setdefault(key, creator.GroupPlan(extra["camera_key"], extra["camera_name"], extra["profile"]))
-        mode = body.get("transfer") if body.get("transfer") in (transfer.MOVE, transfer.COPY, transfer.LEAVE) \
-            else self.cfg.workflow["project"]["transfer"]
-        return creator.Plan(project=naming.normalize(body.get("project", "")),
-                            root=body.get("root") or self.cfg.workflow["project"]["default_root"],
-                            groups=list(groups.values()), fmt=self._format(body), transfer=mode,
-                            basic_correction=bool(body.get("basic_correction")))
-
     # ------------------------------------------------------------------ open project
     def current(self) -> dict:
         """The project open in Resolve right now, and whether davigen manages it."""
@@ -555,7 +602,10 @@ class App:
                                      (q.get("camera_name") or [""])[0]).as_dict()
 
     def set_settings(self, body: dict) -> dict:
-        allowed = {k: v for k, v in body.items() if k in ("online_sources", "default_root")}
+        allowed = {k: v for k, v in body.items()
+                   if k in ("online_sources", "default_root", "transfer", "default_actions", "song_markers")}
+        if "transfer" in allowed and allowed["transfer"] not in TRANSFER_MODES:
+            allowed.pop("transfer")
         return save_settings(**allowed)
 
     def vendor_lut(self, body: dict) -> dict:
@@ -643,8 +693,7 @@ def make_handler(app: App):
         "/api/basic/look": app.basic_look,
         "/api/project/posters": app.project_posters,
         "/api/update": lambda q: app.updater.snapshot(),
-        "/api/edit/music": app.music_info,
-        "/api/edit/last": app.edit_last,
+        "/api/assets": app.assets_list,
     }
     routes_post = {
         "/api/validate": app.validate,
@@ -660,7 +709,10 @@ def make_handler(app: App):
         "/api/basic": app.start_basic,
         "/api/basic/goto": app.basic_goto,
         "/api/basic/evaluate": app.start_evaluate,
-        "/api/edit": app.start_edit,
+        "/api/apply": app.start_apply,
+        "/api/run/input": app.run_input,
+        "/api/run/stop": app.run_stop,
+        "/api/project/delete": app.delete_project,
         "/api/basic/learn": app.basic_learn,
         "/api/basic/look": app.basic_look_save,
         "/api/basic/reset": app.start_basic_reset,
@@ -672,8 +724,6 @@ def make_handler(app: App):
         "/api/catalog/refresh": app.catalog_refresh,
         "/api/cameras": app.add_camera,
         "/api/update/check": lambda b: app.updater.check(),
-        "/api/pick-music": app.pick_music,
-        "/api/edit/preview": app.start_edit_preview,
         "/api/timeline/open": app.open_timeline,
         "/api/update/run": app.update_run,
         "/api/heartbeat": lambda b: {"ok": True},
@@ -768,22 +818,13 @@ def make_handler(app: App):
                     return self._send(200, app.basic_look_preview(query), "image/png")
                 except Exception as e:  # noqa: BLE001
                     return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
-            if url.path in ("/project/poster.png", "/basic/thumb.png", "/edit/frame.png"):
+            if url.path in ("/project/poster.png", "/basic/thumb.png"):
                 query = parse_qs(url.query)
                 if (query.get("t") or [""])[0] != app.token:
                     return self._send(403, b"forbidden", "text/plain")
-                make = {"/project/poster.png": app.project_poster, "/basic/thumb.png": app.basic_thumb,
-                        "/edit/frame.png": app.edit_frame}[url.path]
+                make = {"/project/poster.png": app.project_poster, "/basic/thumb.png": app.basic_thumb}[url.path]
                 try:
                     return self._send(200, make(query), "image/png")
-                except Exception as e:  # noqa: BLE001
-                    return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
-            if url.path == "/edit/preview.mp4":
-                query = parse_qs(url.query)
-                if (query.get("t") or [""])[0] != app.token:
-                    return self._send(403, b"forbidden", "text/plain")
-                try:
-                    return self._send_file(app.edit_preview_file(), "video/mp4")
                 except Exception as e:  # noqa: BLE001
                     return self._send(404, f"{type(e).__name__}: {e}".encode(), "text/plain")
             if url.path.startswith("/catalog/thumbs/"):
@@ -820,13 +861,6 @@ def make_handler(app: App):
 _NOLOCK = contextlib.nullcontext()
 
 
-AUDIO_EXT = {".mp3", ".wav", ".aif", ".aiff", ".m4a", ".aac", ".flac", ".ogg", ".caf"}
-
-
-def _is_audio(path: str) -> bool:
-    return bool(path) and Path(path).suffix.lower() in AUDIO_EXT and Path(path).is_file()
-
-
 class Superseded(Exception):
     """A picture nobody waits for anymore."""
 
@@ -843,7 +877,12 @@ class _LocalServer(ThreadingHTTPServer):
 def serve(resolve, cfg: Config | None = None, open_browser: bool = True, start: str = "") -> None:
     """start: a view to open right away ("basic" starts Basic Correction on the current timeline)."""
     app = App(resolve, cfg or Config())
-    app.recovery = transfer.recover_pending()        # undo transfers a crash left unfinished
+    app.recovery = transfer.recover_pending()        # undo transfers a crash left unfinished …
+    try:                                               # … and imports of pipeline runs (Resolve side)
+        app.run_recovery = pl_runner.recover(lambda base: Context(resolve=resolve, cfg=app.cfg, base=base,
+                                                                  store=pl_assets.AssetStore(base)))
+    except Exception as e:  # noqa: BLE001 - never keep davigen from starting
+        app.run_recovery = [{"title": "Recovery", "undone": 0, "problems": [str(e)], "folder": ""}]
     httpd = _LocalServer(("127.0.0.1", 0), make_handler(app))
     port = httpd.server_address[1]
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

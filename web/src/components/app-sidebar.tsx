@@ -8,7 +8,7 @@ import {
   LoaderIcon,
   PaletteIcon,
   PlusIcon,
-  ScissorsIcon,
+  LayersIcon,
   Settings2Icon,
 } from "lucide-react"
 
@@ -54,7 +54,7 @@ const PROJECT: Entry[] = [
   { route: "overview", label: "Overview", icon: HouseIcon },
   { route: "basic", label: "Basic correction", icon: PaletteIcon, needsProject: true },
   { route: "report", label: "Report", icon: ChartNoAxesColumnIcon, needsProject: true },
-  { route: "edit", label: "Edit assist", icon: ScissorsIcon, needsProject: true },
+  { route: "assets", label: "Assets", icon: LayersIcon, needsProject: true },
 ]
 
 export function AppSidebar() {

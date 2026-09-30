@@ -2,7 +2,6 @@ import * as React from "react"
 import {
   CheckIcon,
   CircleDashedIcon,
-  ClapperboardIcon,
   ClipboardListIcon,
   HandIcon,
   LayoutDashboardIcon,
@@ -22,9 +21,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
-import { img, progressOf, video, type Live, type Step } from "@/lib/api"
+import { fmtRemaining, img, progressOf, type Live, type PipelineStep, type Step } from "@/lib/api"
 import { useApp } from "@/lib/app-state"
 import { cn } from "@/lib/utils"
+import { overallOf, PipelineSteps, StepSummary, StopButton } from "@/pipeline/pipeline-view"
 
 function useElapsed(since: number, running: boolean) {
   const [now, setNow] = React.useState(Date.now())
@@ -163,11 +163,18 @@ export function RunPage() {
       </Page>
     )
   const p = run.progress
-  const steps = p?.steps ?? []
+  const pipeline = p?.kind === "pipeline"
+  const steps = (p?.steps ?? []) as Step[]
   const settled = steps.filter((s) => ["done", "skipped", "error"].includes(s.state)).length
   const cur = steps.find((s) => s.state === "running")
   const partial = cur ? progressOf(cur.detail) ?? 0.3 : 0
-  const overall = run.done && !run.error ? 100 : steps.length ? ((settled + partial) / steps.length) * 100 : 0
+  const overall = pipeline
+    ? overallOf(p!.steps as PipelineStep[], run.done, run.error)
+    : run.done && !run.error
+      ? 100
+      : steps.length
+        ? ((settled + partial) / steps.length) * 100
+        : 0
   const live = p?.live ?? []
   const error = run.error
   const result = p?.result ?? {}
@@ -179,9 +186,16 @@ export function RunPage() {
         title={run.title}
         actions={
           <>
+            {pipeline && running && <StepSummary steps={p!.steps as PipelineStep[]} />}
+            {pipeline && running && (p?.remaining ?? 0) > 0 && !p!.steps.some((s) => s.state === ("input" as string)) && (
+              <Badge variant="secondary" className="tabular-nums">
+                {fmtRemaining(p!.remaining!)} left
+              </Badge>
+            )}
             <Badge variant="outline" className="tabular-nums">
               {elapsed}
             </Badge>
+            {pipeline && running && <StopButton />}
             {!running && (
               <Button
                 onClick={() => {
@@ -202,7 +216,13 @@ export function RunPage() {
       <div className={cn("grid gap-6", live.length > 0 && "lg:grid-cols-[1fr_1.4fr]")}>
         <Card>
           <CardContent>
-            {steps.length ? <Steps steps={steps} /> : <Spinner />}
+            {!steps.length ? (
+              <Spinner />
+            ) : pipeline ? (
+              <PipelineSteps steps={p!.steps as PipelineStep[]} />
+            ) : (
+              <Steps steps={steps} />
+            )}
           </CardContent>
         </Card>
         {live.length > 0 && <LiveView live={live} />}
@@ -250,18 +270,6 @@ export function RunPage() {
           )}
           {run.kind === "basic" && result.rows && <ReportView rows={result.rows} timeline={result.timeline} />}
           {run.kind === "evaluate" && result.summary && <EvalSummaryCard s={result.summary} />}
-          {(run.kind === "edit" || run.kind === "preview") && result.preview && (
-            <Card className="overflow-hidden p-0">
-              <video src={video.preview(run.started)} controls playsInline className="max-h-[70vh] w-full bg-black" />
-            </Card>
-          )}
-          {run.kind === "edit" && result.rough_cut && (
-            <Alert>
-              <ClapperboardIcon />
-              <AlertTitle>The rough cut is in {result.rough_cut}</AlertTitle>
-              <AlertDescription>Cut on from there. The details are on the Edit assist page.</AlertDescription>
-            </Alert>
-          )}
         </div>
       )}
     </Page>

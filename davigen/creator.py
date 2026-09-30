@@ -1,79 +1,26 @@
-"""The flows the UI can start: create a project, and maintain the open project.
+"""Flows outside the pipeline that maintain the open project (rebuild colour groups, assign groups on every
+timeline, queue renders) and the helpers every flow uses: where the project folder is, its format.
 
-Every flow reports into a Reporter (polled by the UI via /api/progress). Footage transfers are
-journaled (transfer.py): if a flow fails, every moved/copied file is put back automatically.
-"""
+New projects and every import run on the pipeline (davigen/pipeline). Every flow reports into a Reporter or a
+pipeline Run, both polled by the UI via /api/progress."""
 
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import traceback
-from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 
-from . import color, deliver, filesystem, formats, media_pool, naming, project as project_mod, timelines, transfer
+from . import color, deliver, filesystem, formats, media_pool, transfer
 from .config import Config
 from .formats import Format
-from .resolve_api import ResolveError, capabilities, ensure_bin, find_timeline, is_studio
-from .scanner import CameraGroup, ClipInfo
+from .resolve_api import ResolveError, capabilities
 
-NEW_PROJECT_STEPS = [
-    ("folders", "Project folder"),
-    ("transfer", "Footage into the project"),
-    ("project", "Resolve project + settings"),
-    ("bins", "Media Pool bins"),
-    ("import", "Import + sort clips"),
-    ("timelines", "Timelines + tracks"),
-    ("color", "Color groups + LUTs"),
-    ("assign", "Groups + node structure"),
-    ("basic", "Basic correction"),
-    ("deliver", "Render presets"),
-    ("save", "Save"),
-]
-ADD_FOOTAGE_STEPS = [
-    ("folders", "Camera folders"),
-    ("transfer", "Footage into the project"),
-    ("bins", "Camera bins"),
-    ("import", "Import + sort clips"),
-    ("timelines", "Append to assembly timeline"),
-    ("color", "Color groups + LUTs"),
-    ("assign", "Groups + node structure"),
-    ("save", "Save"),
-]
 COLOR_STEPS = [("color", "Rebuild color groups + LUTs"), ("assign", "Groups + node structure"), ("save", "Save")]
 ASSIGN_STEPS = [("assign", "Groups + node structure on all timelines"), ("basic", "Basic correction"), ("save", "Save")]
 QUEUE_STEPS = [("deliver", "Add render jobs")]
 
 TRANSFER_LABEL = {transfer.MOVE: "moved", transfer.COPY: "copied", transfer.LEAVE: "left in place"}
-
-
-@dataclass
-class GroupPlan:
-    camera_key: str
-    camera_name: str
-    profile: str
-    clips: list[ClipInfo] = field(default_factory=list)
-    make: str = ""
-    model: str = ""
-
-    def group_name(self, cfg: Config) -> str:
-        return naming.group_name(self.camera_key, cfg.profiles[self.profile].short)
-
-    def as_camera_group(self) -> CameraGroup:
-        return CameraGroup(self.camera_key, self.camera_name, self.make, self.model, self.profile, "", self.clips)
-
-
-@dataclass
-class Plan:
-    project: str
-    root: str
-    groups: list[GroupPlan]
-    fmt: Format | None = None
-    transfer: str = transfer.MOVE
-    basic_correction: bool = False
 
 
 class Reporter:
@@ -162,92 +109,6 @@ def project_format(cfg: Config, project, base: Path) -> Format:
         return Format(f["width"], f["height"], f["fps"], f["aspect"], f.get("deliveries", []))
     w, h = int(project.GetSetting("timelineResolutionWidth")), int(project.GetSetting("timelineResolutionHeight"))
     return Format(w, h, float(project.GetSetting("timelineFrameRate")), formats.aspect_of(cfg, w, h))
-
-
-def _destination(target_dir: Path, clip: ClipInfo) -> Path:
-    """<camera folder>/<YYYY-MM-DD>_<SOURCE FOLDER>/<original file name>; never overwrites."""
-    day = (clip.created or "")[:10] or "UNDATED"
-    source = naming.normalize(Path(clip.path).parent.name) or "SOURCE"
-    folder = target_dir / f"{day}_{source}"
-    n = 2
-    while (folder / Path(clip.path).name).exists():
-        folder = target_dir / f"{day}_{source}_{n}"
-        n += 1
-    return folder / Path(clip.path).name
-
-
-def _transfer(cfg: Config, base: Path, plan: Plan, rep: Reporter, skip: set[str]) -> dict[int, list[str]]:
-    """Move / copy / leave the footage. Returns the clip paths to import, per group."""
-    paths_by_group: dict[int, list[str]] = {}
-    todo = [(gi, c) for gi, g in enumerate(plan.groups) for c in g.clips if c.path not in skip]
-    if plan.transfer == transfer.LEAVE or not todo:
-        for gi, g in enumerate(plan.groups):
-            paths_by_group[gi] = [c.path for c in g.clips]
-        rep.finish("transfer", "footage stays where it is" if todo else "no new footage", state="skipped")
-        return paths_by_group
-
-    rep.start("transfer")
-    files = [Path(c.path) for _, c in todo]
-    need = transfer.space_needed(files, base, plan.transfer)
-    free = shutil.disk_usage(base).free
-    if need > free * 0.98:
-        raise ResolveError(f"Not enough space in {base}: {need / 1e9:.1f} GB needed, {free / 1e9:.1f} GB free")
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    journal = transfer.Journal(base / "00_ADMIN" / "PROJECT_INFO" / f"transfer_{stamp}.json", plan.transfer)
-    rep.journal = journal
-    journal.begin()
-    for gi, g in enumerate(plan.groups):
-        target = filesystem.media_folder_for(cfg, base, g.camera_key)
-        paths_by_group[gi] = []
-        for i, clip in enumerate(g.clips, 1):
-            if clip.path in skip:
-                paths_by_group[gi].append(clip.path)
-                continue
-            rep.detail("transfer", f"{g.camera_name}: {i}/{len(g.clips)} · {Path(clip.path).name}")
-            dst = journal.transfer(Path(clip.path), _destination(target, clip))
-            paths_by_group[gi].append(str(dst))
-    how = TRANSFER_LABEL[plan.transfer]
-    rep.finish("transfer", f"{len(todo)} files {how} into 01_MEDIA ({need / 1e9:.1f} GB checked by checksum)"
-               if need else f"{len(todo)} files {how} into 01_MEDIA (same drive – instant)")
-    return paths_by_group
-
-
-def _camera_bins(cfg: Config, base: Path, plan: Plan) -> dict[str, str]:
-    return {g.camera_key: filesystem.media_folder_for(cfg, base, g.camera_key).name for g in plan.groups}
-
-
-def _import(proj, cfg: Config, plan: Plan, paths_by_group: dict[int, list[str]], camera_bins: dict[str, str],
-            rep: Reporter, existing: set[str]) -> list:
-    """Import every group into its camera bin. Returns MediaPoolItems sorted by recording time."""
-    rep.start("import")
-    mp = proj.GetMediaPool()
-    footage = cfg.workflow["bins"]["footage"]
-    keys = list(camera_bins)
-    ordered: list[tuple[str, object]] = []
-    for gi, g in enumerate(plan.groups):
-        pairs = [(c, p) for c, p in zip(g.clips, paths_by_group.get(gi, [])) if p not in existing]
-        skipped = len(paths_by_group.get(gi, [])) - len(pairs)
-        if skipped:
-            rep.warn([f"{g.camera_name}: {skipped} clips are already in the project – skipped"])
-        if not pairs:
-            continue
-        clips, paths = [c for c, _ in pairs], [p for _, p in pairs]
-        rep.detail("import", f"{g.camera_name}: {len(paths)} clips")
-        folder = ensure_bin(mp, f"{footage}/{camera_bins[g.camera_key]}")
-        clip_color = media_pool.CLIP_COLORS[keys.index(g.camera_key) % len(media_pool.CLIP_COLORS)]
-        items = media_pool.import_group(mp, folder, g.as_camera_group(), paths, clip_color,
-                                        cfg.profiles[g.profile].label, g.group_name(cfg))
-        lost = media_pool.missing(paths, items)
-        if lost:
-            raise ResolveError(f"Resolve couldn't import {len(lost)} clips of {g.camera_name}: "
-                               + ", ".join(Path(p).name for p in lost[:5]))
-        by_path = {i.GetClipProperty("File Path"): i for i in items}
-        for clip, path in zip(clips, paths):
-            if path in by_path:
-                ordered.append(((clip.created or "") + clip.name, by_path[path]))
-    items = [item for _, item in sorted(ordered, key=lambda t: t[0])]
-    rep.finish("import", f"{len(items)} clips in {len(set(camera_bins.values()))} camera bins")
-    return items
 
 
 def _color(resolve, proj, cfg: Config, specs: list[dict], scratch, rep: Reporter) -> None:
@@ -343,12 +204,6 @@ def _save(resolve, rep: Reporter, detail: str = "", timeline=None) -> None:
     rep.finish("save", detail)
 
 
-def _specs(cfg: Config, groups: list[GroupPlan]) -> list[dict]:
-    return list({g.group_name(cfg): {"group_name": g.group_name(cfg), "profile": g.profile,
-                                     "camera_key": g.camera_key, "camera_name": g.camera_name}
-                 for g in groups}.values())
-
-
 def project_groups(cfg: Config, proj) -> dict[str, dict]:
     """Group specs of the open project, reconstructed from the davigen metadata on its clips."""
     specs: dict[str, dict] = {}
@@ -367,146 +222,12 @@ def _all_timelines(proj) -> list:
     return [proj.GetTimelineByIndex(i) for i in range(1, proj.GetTimelineCount() + 1)]
 
 
-def _assembly(proj, cfg: Config, fmt: Format):
-    spec = next((t for t in formats.timelines(cfg, fmt) if t.get("fill_with_footage")), None)
-    return find_timeline(proj, spec["name"]) if spec else None
-
-
 def _any_clip(proj):
     clips = media_pool.davigen_clips(proj.GetMediaPool().GetRootFolder())
     return clips[0] if clips else None
 
 
 # ============================================================================== flows
-
-def new_project(resolve, cfg: Config, plan: Plan, rep: Reporter) -> None:
-    if not plan.project:
-        raise ResolveError("Project name missing")
-    base = filesystem.project_dir(plan.root, plan.project)
-    if (base / "00_ADMIN" / "PROJECT_INFO" / "davigen.json").exists():
-        raise ResolveError(f"{base} already contains a davigen project")
-    studio = is_studio(resolve)
-    fmt = plan.fmt or formats.default_format(cfg, studio)
-    if not studio and not formats.fits_free(cfg, fmt.width, fmt.height):
-        fmt.width, fmt.height = formats.clamp_free(cfg, fmt.width, fmt.height)
-
-    rep.start("folders", str(base))
-    filesystem.create_tree(cfg, base, list(dict.fromkeys(g.camera_key for g in plan.groups)),
-                           [d["folder"] for d in formats.deliveries(cfg, fmt, plan.project)])
-    rep.finish("folders", str(base))
-
-    paths_by_group = _transfer(cfg, base, plan, rep, skip=set())
-
-    rep.start("project", plan.project)
-    proj, warns = project_mod.create(resolve, cfg, plan.project, base, fmt)
-    rep.warn(warns)
-    w, h = proj.GetSetting("timelineResolutionWidth"), proj.GetSetting("timelineResolutionHeight")
-    rep.finish("project", f"{w}×{h} · {fmt.resolve_fps} fps · DaVinci YRGB · DaVinci Wide Gamut / Intermediate")
-
-    rep.start("bins")
-    camera_bins = _camera_bins(cfg, base, plan)
-    media_pool.build_bins(proj.GetMediaPool(), cfg, list(dict.fromkeys(camera_bins.values())))
-    rep.finish("bins")
-
-    items = _import(proj, cfg, plan, paths_by_group, camera_bins, rep, existing=set())
-
-    rep.start("timelines")
-    created, warns = timelines.create_all(proj, cfg, fmt, items)
-    rep.warn(warns)
-    rep.finish("timelines", f"{len(created)} timelines")
-
-    _color(resolve, proj, cfg, _specs(cfg, plan.groups), items[0] if items else None, rep)
-    assembly = _assembly(proj, cfg, fmt)
-    touched = _assign(proj, rep, [assembly] if assembly else [])
-    try:
-        _basic(resolve, cfg, rep, touched, base, plan.basic_correction)
-    except Exception as e:  # noqa: BLE001 - the project itself is fine; Basic Correction can run again later
-        rep.finish("basic", f"stopped: {e}", state="error")
-        rep.warn([f"Basic correction stopped: {e}. The project is complete – run it again from the home screen."])
-
-    rep.start("deliver")
-    rep.warn(deliver.ensure_presets(proj, cfg, fmt, studio))
-    rep.finish("deliver", " · ".join(d["label"].split(" · ")[0] for d in formats.deliveries(cfg, fmt, plan.project)))
-
-    filesystem.write_project_info(base, {
-        "project": plan.project, "resolve": resolve.GetVersionString(), "studio": studio, "format": fmt.as_dict(),
-        "transfer": plan.transfer, "basic_correction": plan.basic_correction,
-        "groups": [{"group": g.group_name(cfg), "camera": g.camera_name, "profile": g.profile,
-                    "clips": len(g.clips)} for g in plan.groups],
-    })
-    filesystem.register_project(plan.project, base, project_mod.PM_FOLDER)
-    _save(resolve, rep, str(base), assembly)
-    rep.warn([
-        "MANUAL: Color page → Group Post-Clip: add your look nodes BEFORE the output node "
-        "(select the output node → Color → Nodes → Add Serial Before Current)",
-        f"MANUAL: Project Settings → Master Settings → Working Folders: proxy location {base / '03_WORK' / 'PROXIES'}, "
-        f"cache location {base / '03_WORK' / 'CACHE'} (Resolve doesn't keep these when a script sets them)",
-        "MANUAL: Proxies: Media Pool → select clips → right-click → Generate Proxy Media",
-        "MANUAL: Built new timelines (edit, master, deliveries)? run 'Assign groups & nodes' in davigen – Resolve keeps "
-        "color groups and grades per timeline clip, not per Media Pool clip",
-    ])
-    rep.result = {"project": plan.project, "folder": str(base)}
-
-
-def add_footage(resolve, cfg: Config, plan: Plan, rep: Reporter) -> None:
-    proj = resolve.GetProjectManager().GetCurrentProject()
-    base = project_base(proj)
-    fmt = project_format(cfg, proj, base)
-    existing = media_pool.all_clip_paths(proj.GetMediaPool().GetRootFolder())
-
-    # a card added a second time (copied the first time) has the same clips under other paths: same name and size
-    known = _fingerprints(existing)
-    twins = [c for g in plan.groups for c in g.clips if c.path not in existing and _fingerprint(c.path) in known]
-    if twins:
-        drop = {c.path for c in twins}
-        for g in plan.groups:
-            g.clips = [c for c in g.clips if c.path not in drop]
-        plan.groups = [g for g in plan.groups if g.clips]
-        rep.warn([f"{len(twins)} clips are already in the project (same name and size) – skipped"])
-        if not plan.groups:
-            for sid, _ in ADD_FOOTAGE_STEPS:
-                rep.finish(sid, "nothing new", state="skipped")
-            return
-
-    rep.start("folders")
-    filesystem.create_tree(cfg, base, list(dict.fromkeys(g.camera_key for g in plan.groups)))
-    rep.finish("folders", str(base / cfg.workflow["folders"]["media_root"]))
-
-    paths_by_group = _transfer(cfg, base, plan, rep, skip=existing)
-
-    rep.start("bins")
-    camera_bins = _camera_bins(cfg, base, plan)
-    media_pool.build_bins(proj.GetMediaPool(), cfg, list(dict.fromkeys(camera_bins.values())))
-    rep.finish("bins")
-
-    items = _import(proj, cfg, plan, paths_by_group, camera_bins, rep, existing)
-
-    rep.start("timelines")
-    assembly = _assembly(proj, cfg, fmt)
-    if not items:
-        rep.finish("timelines", "no new clips", state="skipped")
-    elif assembly is None:
-        rep.finish("timelines", "no assembly timeline found", state="skipped")
-    else:
-        proj.SetCurrentTimeline(assembly)
-        proj.GetMediaPool().AppendToTimeline(items)
-        rep.finish("timelines", f"{len(items)} clips appended to {assembly.GetName()}")
-
-    _color(resolve, proj, cfg, _specs(cfg, plan.groups), items[0] if items else _any_clip(proj), rep)
-    _assign(proj, rep, [assembly] if assembly else [])
-    _save(resolve, rep, proj.GetName(), assembly)
-
-
-def _fingerprint(path: str) -> tuple[str, int] | None:
-    try:
-        return Path(path).name.lower(), Path(path).stat().st_size
-    except OSError:
-        return None
-
-
-def _fingerprints(paths) -> set:
-    return {f for f in (_fingerprint(p) for p in paths) if f}
-
 
 def refresh_color(resolve, cfg: Config, rep: Reporter) -> None:
     """(Re)build LUTs for every group used by clips in the project, e.g. after adding a LUT file."""

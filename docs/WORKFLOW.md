@@ -10,7 +10,7 @@ for what, how grading is laid out, and how to deliver. The names below are the d
 - [4. Editing, step by step](#4-editing-step-by-step)
 - [5. Grading](#5-grading)
 - [6. Delivering](#6-delivering)
-- [7. Adding footage later](#7-adding-footage-later)
+- [7. Adding files later](#7-adding-files-later)
 - [8. Naming and versions](#8-naming-and-versions)
 - [9. One-time Resolve settings](#9-one-time-resolve-settings)
 
@@ -21,23 +21,25 @@ for what, how grading is laid out, and how to deliver. The names below are the d
 ```
 ITALY_2026/
 ├── 00_ADMIN/
-│   ├── PROJECT_INFO/        davigen.json (format, groups, cameras) + transfer journals
+│   ├── PROJECT_INFO/        davigen.json (format, groups), assets.json (every file and what was done to it),
+│   │                        transfer journals, runs/ (a journal per run), basic_correction/
 │   ├── VERSION_HISTORY/
 │   └── REFERENCES/          mood boards, briefs, scripts
 ├── 01_MEDIA/
 │   ├── 01_LUMIX_S1II/       original camera files, one folder per camera (original file names)
 │   ├── 02_DJI_AIR3/
-│   ├── 90_AUDIO/            external audio recorders
+│   ├── 90_AUDIO/            voice-over, dialogue, external recorders
 │   ├── 91_STILLS/           photos
-│   └── 92_STOCK/            licensed stock
+│   └── 92_STOCK/            stock video
 ├── 02_RESOLVE/
 │   ├── 01_PROJECT_FILES/    .drp exports (File → Export Project) for archiving
 │   ├── 02_BACKUPS/
 │   └── 03_GALLERY/          stills and PowerGrades of this project
 ├── 03_WORK/
-│   ├── PROXIES/
-│   ├── CACHE/
-│   └── OPTIMIZED_MEDIA/
+│   ├── PROXIES/             Resolve's proxies (set by davigen)
+│   ├── CACHE/               render cache and optimized media
+│   ├── PROJECT_MEDIA/       what Resolve itself writes for the project
+│   └── ANALYSIS/            Basic correction's measured frames
 ├── 04_ASSETS/
 │   └── MUSIC/  SFX/  GRAPHICS/  LOGOS/  FONTS/  LUTS/  VFX/
 ├── 05_EXPORTS/
@@ -48,7 +50,9 @@ ITALY_2026/
 └── 99_ARCHIVE/
 ```
 
-**The rule:** anything the project uses lives inside this folder. Because everything is linked relative to it,
+**The rule:** anything the project uses lives inside this folder – Resolve's working folders included, so a
+proxy or cache file never ends up somewhere else. Files brought in with *link* show here as links to where they
+really are (see [7](#7-adding-files-later)). Because everything is linked relative to it,
 you can move the whole folder to another drive or archive it, and relinking stays trivial.
 
 The Resolve project itself sits in Resolve's project database under `VIDEO_PROJECTS/ACTIVE`. When a project is
@@ -63,11 +67,12 @@ into `02_RESOLVE/01_PROJECT_FILES`.
 | `01_FOOTAGE/<CAMERA>` | All clips from one camera, filled by davigen. Leave these bins as they are and work from selects. |
 | `02_SELECTS/01_A_ROLL … 05_FINAL_SELECTS` | Your picks. Drag or copy clips here while you review (see step 2 below). |
 | `03_TIMELINES/01_ASSEMBLY … 04_DELIVERABLES` | Every timeline lives in the bin for its stage. |
-| `04_AUDIO/…` | Music, VO, dialogue, SFX and ambience. |
-| `05_GRAPHICS/…` | Titles, lower thirds, logos and VFX. |
+| `04_AUDIO/…` | Music (with davigen's song markers), VO, dialogue, SFX and ambience. |
+| `05_GRAPHICS/…` | Titles, lower thirds, images, logos and VFX. |
 | `06_EXPORTS` | Rendered files you re-import, for example for review. |
 | `07_POWERGRADES` | Place for PowerGrade stills (the Gallery has a PowerGrade album too). |
 | `08_REFERENCES` | Reference films and frames for matching. |
+| `09_STILLS` | Photos. |
 
 **Clip metadata:** every clip davigen imports carries its camera, log profile and color group, both in its metadata
 (Keywords, Camera) and in a davigen field. That is how *Assign groups & nodes* finds the right group for a clip on
@@ -77,14 +82,14 @@ any timeline. Each camera also gets its own **clip color**.
 
 | Timeline | Resolution | Purpose |
 |---|---|---|
-| `TL_01_ASSEMBLY_3X2_25_v001` | master | All footage in shooting order, filled by davigen (new footage goes to its end). Basic correction measures here; Edit assist's markers show on its clips. Watch it, mark and pick. Don't edit here. |
-| `TL_02_EDIT_3X2_25_v001` | master | **Where you cut**: story, timing, music. Edit assist's rough cut lands here while it's empty; once you've started cutting, a new rough cut goes into `…_v002`, so your edit is never touched. |
+| `TL_01_ASSEMBLY_3X2_25_v001` | master | All footage in shooting order, filled by davigen (new footage goes to its end). Basic correction measures here. Watch it, mark and pick. Don't edit here. |
+| `TL_02_EDIT_3X2_25_v001` | master | **Where you cut**: story, timing, music. |
 | `TL_03_MASTER_3X2_25_v001` | master | The picture-locked, graded, mixed film. It is the source of every delivery. |
 | `TL_04_DELIVERY_16X9_25_v001` | 3840 × 2160 | The master reframed for 16:9. |
 | `TL_05_DELIVERY_9X16_25_v001` | 1080 × 1920 | The master reframed for 9:16. |
 
 Basic correction's `DAVIGEN_AUTO` reaches every timeline: Resolve keeps a grade per timeline clip, so davigen
-writes it onto the same clips wherever they are used (*On every timeline*, and automatically for the rough cut).
+writes it onto the same clips wherever they are used (*On every timeline*, and automatically after every run).
 
 These are the tracks on every timeline:
 
@@ -103,40 +108,30 @@ and down for 16:9 and plenty of room left and right for 9:16.
 
 ## 4. Editing, step by step
 
-1. **Proxies (once):**
-   1. In `01_FOOTAGE`, select all clips.
+1. **Proxies (when you want them):**
+   1. In `01_FOOTAGE`, select the clips.
    2. Right-click → **Generate Proxy Media**.
 
-   Proxies are half resolution (the project is set up that way). First point them at `03_WORK/PROXIES`, under
-   Project Settings → Master Settings → Working Folders → *Proxy generation location*. Resolve doesn't keep this
-   path when a script sets it. Playback → **Proxy Handling → Prefer Proxies** keeps 6K open gate smooth on a
-   laptop.
-2. **Let davigen watch the footage first (Edit assist):** on the home screen press **Selects**. davigen
-   watches every clip once (about three times faster than real time) and marks it in the Media Pool:
+   davigen has set their resolution (half) and their folder (`03_WORK/PROXIES`), so they land in the project.
+   Playback → **Proxy Handling → Prefer Proxies** keeps 6K open gate smooth on a laptop.
+2. **Music:** add your songs with **Add files** (or at the start). With *Song markers* ticked, every song gets
+   markers on itself, so they show wherever you use it:
 
    | Marker | Means |
    |---|---|
-   | green `davigen: good 0.82` | a steady, sharp, well exposed stretch; the number rates it |
-   | red `davigen: blurred` / `shaking` / `dark / covered` / `whip pan` | skip this |
-   | blue `davigen: speech` | someone talks: an A-roll candidate; with *Transcribe speech* the marker's note holds what was said |
+   | cyan `bar 12` | every downbeat – cutting on the bar |
+   | purple `phrase 3` / `part 2 · energetic` | every 4 bars, and the song's parts (verse, chorus, drop, calm part) as ranges |
+   | yellow `accent` | a hit that stands out from the beat around it (crash, drop, snare fill) – cutting on feel |
+   | pink `vocal entry (estimated)` | a sung line starts after a pause; estimated from the signal, check it |
 
-   The markers belong to the clips, so they show in the Assembly and every other timeline; no extra timeline is
-   made. **Rough cut to music** (song, length and pace chosen on the Edit assist page) marks the song's bars and
-   sections and cuts the best stretches in shooting order on the bar into `TL_02_EDIT` – while it is empty, else
-   into its next version – with the song on the MUSIC track, graded like the Assembly, plus a preview video to
-   watch in davigen. A new run replaces only davigen's own markers. Needs ffmpeg (`brew install ffmpeg`).
-
-   **Transcribe speech** (on by default, Apple Silicon): Whisper (large v3 turbo) writes what is said, in any
-   language, into the blue markers, an `.srt` per clip in `03_WORK/TRANSCRIPTS` (import it as subtitles) and
-   `00_ADMIN/PROJECT_INFO/transcripts.md`, a searchable list of everything said on the trip. Where Whisper hears no
-   words (wind, traffic) the speech marker is dropped. The first run installs `mlx-whisper` into davigen's Python and
-   downloads the model (~1.6 GB); after that a minute of speech takes a few seconds.
+   Which kinds you want is a setting (davigen settings → Import) and can be chosen per run. A new run replaces
+   only davigen's own song markers. Needs ffmpeg (`brew install ffmpeg`).
 3. **Pick your shots on the assembly timeline:**
-   1. Open `TL_01_ASSEMBLY` and play through it; the green markers point at the good stretches.
+   1. Open `TL_01_ASSEMBLY` and play through it.
    2. Mark good moments with **I**/**O** and **F9** (insert) into your selects, or flag and color them.
 
    Put the picks into `02_SELECTS`.
-4. **Cut:** build the film on `TL_02_EDIT` (or start from the rough cut), story first, on V1 `MAIN`.
+4. **Cut:** build the film on `TL_02_EDIT`, story first, on V1 `MAIN`, the song on A3 `MUSIC`.
 5. **Picture lock:**
    1. Duplicate the edit (right-click → *Duplicate Timeline*).
    2. Rename the copy to `TL_03_MASTER_…` and move it into `03_TIMELINES/03_MASTER`.
@@ -187,9 +182,10 @@ davigen can fill `01_EXPOSURE` to `04_SATURATION` for you. It renders a few smal
 Resolve, measures them in the working space and writes the values into a **new grade version called
 `DAVIGEN_AUTO`**. Your own version is never changed.
 
-- **Start it:** tick *Basic correction* when you create the project (on by default), press **Basic correction**
-  on the home screen for the current timeline, or choose **Workspace → Scripts → davigen Basic Correction**.
-  *Assign groups & nodes* also corrects clips that just got the node structure, when the project has it on.
+- **Start it:** tick *Basic correction* when you create the project or add files (on by default), use *Apply →
+  Basic correction* on the Assets page for everything that doesn't have it yet, press **Basic correction** on the
+  home screen for the current timeline, or choose **Workspace → Scripts → davigen Basic Correction**. Without a
+  look chosen beforehand, the run stops at its step and asks for it.
 - **What it does per clip:**
 
   | Node | Measured | Written |
@@ -250,16 +246,24 @@ brightness scale) and nothing clipping unless you mean it.
 In **Resolve Free** the master renders at the project resolution, at most UHD. With Studio you can render
 6K 3:2.
 
-## 7. Adding footage later
+## 7. Adding files later
 
-Open the project in Resolve, start davigen, and click **Add footage** on the home screen. New clips:
+Open the project in Resolve, start davigen, and click **Add files** on the home screen – cards, stock, photos,
+graphics, songs, voice-over. It is the same as the setup:
 
-- go into the same `01_MEDIA/<CAMERA>` folders, and a new camera gets the next number
-- land in the matching camera bins, with the same metadata and clip colors
-- are added at the end of `TL_01_ASSEMBLY`
-- join their color group. A new camera or profile gets a new group with its transforms.
+- every file goes to its place: camera clips into `01_MEDIA/<CAMERA>` (a new camera gets the next number), photos,
+  stock, audio, graphics and logos into theirs
+- into the matching bins, camera clips with the same metadata and clip colors, at the end of `TL_01_ASSEMBLY`,
+  into their color group (a new camera or profile gets a new group with its transforms)
+- with the actions you tick (Basic correction, song markers) – only on what doesn't have them yet
 
-Clips already in the project are skipped.
+Files already in the project are recognised by their content (not their name) and left as they are, and nothing
+davigen did before is done again. A clip you deleted in Resolve is noticed and not brought back unless you add
+it again.
+
+**The Assets page** lists every file with what was done to it. *Apply* runs an action on everything that needs it
+or on a selection (*Again on the selection* redoes it, e.g. after changing the look). *Collect linked files*
+replaces links by the files themselves – copied or moved – once you want the project independent of the card.
 
 ## 8. Naming and versions
 
@@ -280,8 +284,7 @@ set them once:
 - **Resolve → Preferences → User → Project Save and Load:**
   - turn on **Live Save**
   - turn on **Project Backups** (for example every 10 minutes, then hourly and daily)
-- **Project Settings → Master Settings → Playback frame rate:** set it to the project frame rate if davigen
-  reported it as a manual step. The API can't set it.
-- **Project Settings → Master Settings → Working Folders:** set the proxy generation location and the cache
-  location to `03_WORK/PROXIES` and `03_WORK/CACHE`. This is once per project.
 - **Playback → Proxy Handling → Prefer Proxies** once proxies exist.
+
+The playback frame rate and the working folders (proxies, cache, project media, gallery) are set by davigen for
+every new project. Projects made by an older davigen: Project Settings → Master Settings.

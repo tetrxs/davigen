@@ -21,6 +21,7 @@ def build_bins(media_pool, cfg: Config, camera_bins: list[str]) -> None:
 
 META_GROUP, META_PROFILE, META_CAMERA = "davigen.group", "davigen.profile", "davigen.camera"
 META_CAMERA_NAME = "davigen.camera_name"
+META_ASSET, META_KIND = "davigen.asset", "davigen.kind"      # every asset davigen imported (pipeline)
 
 
 def import_group(media_pool, bin_folder, group: CameraGroup, paths: list[str], color: str,

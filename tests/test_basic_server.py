@@ -19,11 +19,6 @@ def test_basic_refuses_while_something_runs():
         gate.set()
 
 
-def test_plan_default_is_off():
-    assert creator.Plan("X", "/tmp", []).basic_correction is False
-
-
-
 def test_step_reporter_forwards_into_one_step():
     rep = creator.Reporter([("basic", "Basic correction")])
     sub = creator._StepReporter(rep, "basic", {"sample": "Sample frames"})

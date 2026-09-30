@@ -67,8 +67,11 @@ class Item:
 
 
 def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute: bool = False,
-                     timeline_name: str = "", base: Path | None = None) -> dict:
-    """Run the whole flow on a timeline. Returns the record that is also saved as JSON."""
+                     timeline_name: str = "", base: Path | None = None, only_paths: set[str] | None = None) -> dict:
+    """Run the whole flow on a timeline. Returns the record that is also saved as JSON.
+
+    only_paths: write DAVIGEN_AUTO only for these camera files (the pipeline's selection); every clip of the
+    timeline is still measured, so scenes are matched as before."""
     from ..creator import project_base  # noqa: PLC0415 - creator imports this module for the wizard
     proj = resolve.GetProjectManager().GetCurrentProject()
     if proj is None:
@@ -178,6 +181,12 @@ def basic_correction(resolve, cfg: Config, rep, dry_run: bool = False, recompute
             it.outcome.marker = write.mark(it.ti, [], None, threshold, reason) if it.mpi else ""
             continue
         corr = it.shot.correction
+        if only_paths is not None and it.path not in only_paths:
+            had = write.AUTO in (it.ti.GetVersionNameList(0) or [])
+            it.outcome = write.Outcome(skipped=f"{write.AUTO} exists (not chosen this time)" if had
+                                       else "not chosen this time")
+            it.outcome.marker = write.mark(it.ti, corr.flags, corr.overall, threshold, it.outcome.skipped)
+            continue
         _show(rep, it, n, len(items), base)
         it.outcome = write.write_item(proj, it.ti, corr, recompute=recompute, dry_run=dry_run,
                                       previous_user_version=old_versions.get(it.id, ""),

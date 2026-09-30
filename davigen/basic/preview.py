@@ -53,7 +53,7 @@ def nodes_at(entry: dict, frame: int) -> list[p.Cdl]:
 
 def decode(path: str, frame: int, fps: float, width: int) -> np.ndarray | None:
     """One frame as camera code values 0–1, or None without ffmpeg."""
-    from ..edit.decode import tool  # noqa: PLC0415
+    from ..decode import tool  # noqa: PLC0415
     exe = tool("ffmpeg")
     if not exe:
         return None
