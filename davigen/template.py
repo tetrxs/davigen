@@ -206,6 +206,7 @@ def base_template(resolve) -> Path:
         return target
     pm = resolve.GetProjectManager()
     current = pm.GetCurrentProject()
+    previous = current.GetName() if current is not None else ""   # the object is stale once another project loads
     if current is not None:
         pm.SaveProject()
     open_pm_folder(pm, TEMPLATE_FOLDER)
@@ -223,9 +224,24 @@ def base_template(resolve) -> Path:
     finally:
         pm.CloseProject(project)
         pm.DeleteProject(BASE_NAME)
+        pm.GotoRootFolder()                          # leave no trace in the Project Manager
+        pm.DeleteFolder(TEMPLATE_FOLDER)
+        if previous:
+            _reopen(pm, previous)
     read_settings(tmp)                          # raises TemplateError if the layout isn't the known one
     tmp.replace(target)
     return target
+
+
+def _reopen(pm, name: str) -> None:
+    """Best effort: the project that was open before (the new project is loaded right after anyway)."""
+    from .resolve_api import find_project  # noqa: PLC0415
+    try:
+        from .project import PM_FOLDER  # noqa: PLC0415
+        if find_project(pm, name, PM_FOLDER):
+            pm.LoadProject(name)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def create_project(resolve, name: str, pm_folder: str, fps: float, proxy: Path) -> tuple[object, list[str]]:

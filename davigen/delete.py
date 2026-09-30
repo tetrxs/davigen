@@ -20,7 +20,8 @@ def trash(path: Path) -> None:
     """Move to the Trash through Finder, so 'Put Back' works (like uninstall.sh)."""
     res = subprocess.run(["osascript", "-e", "on run argv", "-e",
                           'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)', "-e",
-                          "end run", str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+                          "end run", str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         timeout=120)                    # macOS may ask once whether davigen may use Finder
     if res.returncode != 0:
         raise ResolveError(f"Finder couldn't move {path.name} to the Trash: {res.stderr.strip()[-200:]}")
 

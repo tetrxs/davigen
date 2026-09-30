@@ -161,6 +161,8 @@ def test_failed_import_puts_everything_back(env):
     names = [c.GetName() for _, c in proj.mp._all()]
     assert names == ["A.MOV"]                                                # C.MOV's import was undone too
     assert [a.name for a in AssetStore(ctx.base)] == ["A.MOV"]
+    camera = ctx.base / "01_MEDIA" / "01_LUMIX_S1II"
+    assert [f.name for f in camera.iterdir()] == ["2026-09-25_DCIM"]           # no empty folder left behind
 
 
 def test_clip_removed_in_resolve_is_left_alone(env):

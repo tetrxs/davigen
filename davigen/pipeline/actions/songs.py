@@ -12,6 +12,7 @@ from ..core import DONE, TODO, Action, ActionError, Check, Input, Option, regist
 from .intake import item_of
 
 PREFIX = "davigen-song"
+LEGACY = "davigen-edit"                   # the bar markers of Edit assist (until 2026-09-30), replaced by these
 # kind: colour, name, what it is, priority (lower wins a frame)
 KINDS = {
     "phrases": ("Purple", "Phrases and parts", "every 4 bars, and where the song changes character", 0),
@@ -122,6 +123,10 @@ class SongMarkers(Action):
         track = music.analyse(stereo.mean(axis=1), stereo=stereo)
         progress(detail=f"{asset.name}: {track.tempo:.0f} BPM")
         clear(mpi, KINDS)                                # davigen's own song markers only, every kind
+        try:
+            mpi.DeleteMarkerByCustomData(LEGACY)
+        except (AttributeError, TypeError):
+            pass
         count = 0
         for m in markers(track, kinds, clip_fps(mpi)):
             count += bool(mpi.AddMarker(m["frame"], m["color"], m["name"], m["note"], m["duration"],

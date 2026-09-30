@@ -107,7 +107,11 @@ class Colour(Action):
         if ti is None:
             return why
         group = ti.GetColorGroup()
-        return Check(DONE if group is not None and group.GetName() == asset.group else TODO)
+        if group is None or group.GetName() != asset.group:
+            return Check(TODO, "not in its colour group")
+        if not _has_input(ctx, group):
+            return Check(TODO, "its colour group has no input transform yet")
+        return Check(DONE)
 
     def estimate(self, ctx, assets):
         existing = {g.GetName() for g in ctx.project.GetColorGroupsList() or []} if ctx.project else set()
@@ -127,6 +131,7 @@ class Colour(Action):
             if not has_lut and a.profile in ctx.cfg.profiles:
                 specs[a.group] = {"group_name": a.group, "profile": a.profile, "camera_key": a.camera_key,
                                   "camera_name": a.camera_name}
+        ctx.forget("group_luts")
         if specs:
             scratch = item_of(ctx, assets[0])
             _, warns = color.setup_groups(ctx.resolve, proj, ctx.cfg, list(specs.values()), scratch,
@@ -153,6 +158,21 @@ class Colour(Action):
         groups = sorted({a.group for a in assets})
         structured = ctx.shared.get("structured", 0)
         return ", ".join(groups) + (f" · {structured} clips got the node structure" if structured else "")
+
+
+def _has_input(ctx, group) -> bool:
+    """The group's input LUT is in place (a missing manufacturer LUT leaves it empty until it is found)."""
+    def build():
+        return {}
+    known = ctx.cached("group_luts", build)
+    name = group.GetName()
+    if known is None or name not in known:
+        pre = group.GetPreClipNodeGraph() if hasattr(group, "GetPreClipNodeGraph") else None
+        has = bool(pre.GetLUT(1)) if pre is not None else True          # Resolve < 19: can't tell, don't nag
+        if known is not None:
+            known[name] = has
+        return has
+    return known[name]
 
 
 def _update_groups(ctx) -> None:

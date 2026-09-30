@@ -133,6 +133,7 @@ class BringIn(Action):
         journal = ctx.shared.get("journal")
         if journal is not None and not journal.committed:
             result = journal.rollback()
+            _drop_empty(ctx.base, [Path(e["dst"]).parent for e in journal.entries])
             if result["problems"]:
                 raise ActionError("Needs a look: " + "; ".join(result["problems"][:5]))
 
@@ -140,6 +141,16 @@ class BringIn(Action):
         mode = ctx.shared.get("bring_mode", "")
         how = {"move": "moved", "copy": "copied", "link": "linked", "leave": "left in place"}.get(mode, mode)
         return f"{len(assets)} files {how}"
+
+
+def _drop_empty(base: Path, folders: list[Path]) -> None:
+    """Folders a rolled-back run created and left empty go again (never above the kind's own folder)."""
+    for folder in sorted(set(folders), key=lambda f: -len(f.parts)):
+        try:
+            if folder.is_relative_to(base) and len(folder.relative_to(base).parts) > 2 and not any(folder.iterdir()):
+                folder.rmdir()
+        except OSError:
+            pass
 
 
 def _same_volume(a: str, b) -> bool:

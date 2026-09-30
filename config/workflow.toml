@@ -17,10 +17,11 @@ colorScienceMode = "davinciYRGB"
 colorSpaceTimeline = "DaVinci WG/Intermediate"
 colorSpaceOutput = "Rec.709 Gamma 2.4"
 timelineInputResMismatchBehavior = "scaleToCrop"
-# proxy mode first – setting it resets the proxy resolution
+# order matters (Resolve 21, 2026-09-30): the render cache mode and the proxy mode both reset the proxy resolution,
+# so the resolution comes last
+perfRenderCacheMode = "smart"
 perfProxyMediaMode = "1"
 perfProxyResolutionRatio = "half"
-perfRenderCacheMode = "smart"
 
 # Master formats. The first preset that fits the Resolve edition is the default,
 # unless the footage suggests something else.

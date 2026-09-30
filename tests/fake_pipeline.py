@@ -353,6 +353,13 @@ class ProjectManager:
         self.folders[(self.path + "/" if self.path else "") + name] = {}
         return True
 
+    def DeleteFolder(self, name):
+        target = (self.path + "/" if self.path else "") + name
+        if self.folders.get(target):
+            return False                                   # only empty folders
+        self.folders.pop(target, None)
+        return True
+
     def OpenFolder(self, name):
         target = (self.path + "/" if self.path else "") + name
         if target not in self.folders:

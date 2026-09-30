@@ -62,6 +62,11 @@ def apply_settings(project, cfg: Config, base: Path, fmt: Format) -> list[str]:
         (base / folder).mkdir(parents=True, exist_ok=True)
         setting(key, base / folder)
 
+    # a later setting can reset an earlier one (the render cache mode resets the proxy resolution): read all back
+    for key, value in cfg.workflow["project"]["settings"].items():
+        if str(project.GetSetting(key)) != str(value):
+            warnings.append(f"Resolve changed {key} back to {project.GetSetting(key)} (davigen set {value})")
+
     if not _same_number(project.GetSetting("timelinePlaybackFrameRate"), fmt.resolve_fps):
         warnings.append(f"MANUAL: Project Settings → Master Settings → set Playback frame rate to {fmt.resolve_fps} "
                         "(Resolve's scripting API can't set it)")
