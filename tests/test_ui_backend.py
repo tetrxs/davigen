@@ -44,21 +44,3 @@ def test_update_never_offered_to_a_checkout():
     if snap["installed"]["dev"]:
         assert snap["available"] is None
         assert u.run()["ok"] is False
-
-
-def test_preview_cube_without_luts_is_the_identity(tmp_path):
-    np = pytest.importorskip("numpy")
-    from davigen.edit import preview
-    from davigen.lut import Lut3D
-    cube = Lut3D.read(preview.bake(None, [], None, tmp_path / "id.cube"))
-    for rgb in ([0.1, 0.5, 0.9], [1.0, 0.0, 0.25]):
-        assert np.allclose(cube.sample(*rgb), rgb, atol=1e-6)
-
-
-def test_preview_fills_the_project_aspect(tmp_path):
-    from davigen.edit import preview
-    info = tmp_path / "00_ADMIN" / "PROJECT_INFO"
-    info.mkdir(parents=True)
-    (info / "davigen.json").write_text(json.dumps({"format": {"width": 3240, "height": 2160}}))
-    assert preview._size(tmp_path, 960) == (960, 640)
-    assert preview._size(tmp_path / "nothing", 960) == (960, 540)

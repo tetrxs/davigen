@@ -4,7 +4,8 @@
 [project]
 fps = 25
 aspect = "3:2"                    # master aspect ratio (see [[aspect]] below)
-transfer = "move"                 # move | copy | leave  – how footage gets into the project folder
+transfer = "move"                 # move | copy | link | leave – how files get into the project folder (a default;
+                                  # the davigen settings decide)
 default_root = "~/Movies/davigen" # where new project folders are created
 fps_choices = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60]
 # Resolve (free version) renders timelines up to UHD: long side <= 3840, short side <= 2160
@@ -69,7 +70,7 @@ tree = [
   "00_ADMIN/PROJECT_INFO", "00_ADMIN/VERSION_HISTORY", "00_ADMIN/REFERENCES",
   "01_MEDIA/90_AUDIO", "01_MEDIA/91_STILLS", "01_MEDIA/92_STOCK",
   "02_RESOLVE/01_PROJECT_FILES", "02_RESOLVE/02_BACKUPS", "02_RESOLVE/03_GALLERY",
-  "03_WORK/PROXIES", "03_WORK/CACHE", "03_WORK/OPTIMIZED_MEDIA",
+  "03_WORK/PROXIES", "03_WORK/CACHE", "03_WORK/PROJECT_MEDIA",
   "04_ASSETS/MUSIC", "04_ASSETS/SFX", "04_ASSETS/GRAPHICS", "04_ASSETS/LOGOS",
   "04_ASSETS/FONTS", "04_ASSETS/LUTS", "04_ASSETS/VFX",
   "05_EXPORTS/01_DRAFTS", "05_EXPORTS/02_REVIEW",
@@ -93,8 +94,77 @@ tree = [
   "06_EXPORTS",
   "07_POWERGRADES",
   "08_REFERENCES",
+  "09_STILLS",
 ]
 footage = "01_FOOTAGE"
+
+# Assets (docs/concepts/PROJECT_PIPELINE.md §3): every kind of file davigen takes in, where it lives on disk and in
+# the Media Pool. Camera clips go to 01_MEDIA/NN_<CAMERA>/<date>_<source>/ and 01_FOOTAGE/NN_<CAMERA> (built per
+# camera); every other kind into `folder`, in a subfolder named after where it came from. An empty `bin` means the
+# file is kept in the project but not imported into Resolve (LUTs, fonts, documents).
+[assets]
+audio_rate = 48000                 # audio that isn't PCM at this rate (or carries a picture) is converted for Resolve
+sfx_below = 20.0                   # seconds: shorter audio without other hints is a sound effect …
+music_from = 60.0                  # … longer audio (or with artist/album tags) is music, the rest voice
+voice_hints = ["vo", "voice", "voiceover", "sprecher", "sprache", "interview", "dialog", "dialogue", "narration", "mic", "rec"]
+sfx_hints = ["sfx", "fx", "whoosh", "swoosh", "hit", "impact", "riser", "boom", "click", "ambience", "atmo"]
+music_hints = ["music", "musik", "song", "track", "beat", "instrumental"]
+logo_hints = ["logo", "brand", "watermark"]
+
+[assets.kinds.camera]
+label = "Camera clips"
+folder = "01_MEDIA"
+bin = "01_FOOTAGE"
+
+[assets.kinds.stock]
+label = "Stock video"
+folder = "01_MEDIA/92_STOCK"
+bin = "01_FOOTAGE/92_STOCK"
+
+[assets.kinds.still]
+label = "Photos"
+folder = "01_MEDIA/91_STILLS"
+bin = "09_STILLS"
+
+[assets.kinds.graphic]
+label = "Graphics"
+folder = "04_ASSETS/GRAPHICS"
+bin = "05_GRAPHICS/IMAGES"
+
+[assets.kinds.logo]
+label = "Logos"
+folder = "04_ASSETS/LOGOS"
+bin = "05_GRAPHICS/LOGOS"
+
+[assets.kinds.music]
+label = "Music"
+folder = "04_ASSETS/MUSIC"
+bin = "04_AUDIO/MUSIC"
+
+[assets.kinds.voice]
+label = "Voice-over & dialogue"
+folder = "01_MEDIA/90_AUDIO"
+bin = "04_AUDIO/VO"
+
+[assets.kinds.sfx]
+label = "Sound effects"
+folder = "04_ASSETS/SFX"
+bin = "04_AUDIO/SFX"
+
+[assets.kinds.lut]
+label = "LUTs"
+folder = "04_ASSETS/LUTS"
+bin = ""
+
+[assets.kinds.font]
+label = "Fonts"
+folder = "04_ASSETS/FONTS"
+bin = ""
+
+[assets.kinds.document]
+label = "Documents"
+folder = "00_ADMIN/REFERENCES"
+bin = ""
 
 # Working timelines in master resolution. {aspect} and {fps} are filled in, e.g. TL_01_ASSEMBLY_3X2_25_v001.
 [[timelines]]

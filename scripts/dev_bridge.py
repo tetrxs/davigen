@@ -26,7 +26,7 @@ ROOT = os.path.join(os.path.expanduser("~"), "Desktop", "davigen")
 PORT = 8799
 IDLE = 7200
 
-_resolve = globals().get("resolve") or app.GetResolve()  # noqa: F821 - injected by Resolve
+_resolve = globals().get("resolve") or globals()["app"].GetResolve()     # both injected by Resolve
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 _token = secrets.token_urlsafe(16)

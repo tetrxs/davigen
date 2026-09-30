@@ -1,4 +1,4 @@
-"""Bring footage into the project folder – move (default), copy, or leave in place – crash-safe.
+"""Bring files into the project folder – move (default), copy, link, or leave in place – crash-safe.
 
 Every step is written to a journal on disk *before* it happens. If davigen, Resolve or the Mac
 stops half-way, the next start finds the unfinished journal and rolls everything back: each file
@@ -6,6 +6,9 @@ ends up where it was before, nothing is left at the destination.
 
 Move on the same volume = rename (instant, no extra space). Move across volumes = copy one file,
 verify it by checksum, then delete the original – extra space needed is at most one file.
+Link = a symbolic link at the file's place in the project, pointing to the original (e.g. on the card): the folder
+shows every file, Resolve keeps the path inside the project (checked 2026-09-30), and the files can be collected
+later without Resolve noticing.
 """
 
 from __future__ import annotations
@@ -18,7 +21,8 @@ from pathlib import Path
 
 from .config import DATA_DIR
 
-MOVE, COPY, LEAVE = "move", "copy", "leave"
+MOVE, COPY, LINK, LEAVE = "move", "copy", "link", "leave"
+MODES = (MOVE, COPY, LINK, LEAVE)
 CHUNK = 8 * 1024 * 1024
 PENDING = DATA_DIR / "pending_transfers.json"      # pointers to journals that are not committed yet
 SIDECAR_SUFFIXES = ("M01.XML", "M01.xml", ".SRT", ".srt", ".LRF", ".lrf", ".XML", ".xml", ".THM", ".thm")
@@ -130,13 +134,18 @@ class Journal:
         return dst
 
     def _one(self, src: Path, dst: Path) -> None:
-        if dst.exists():
+        if dst.exists() or dst.is_symlink():
             raise TransferError(f"{dst} already exists – not overwriting")
         entry = {"src": str(src), "dst": str(dst), "state": "working",
                  "rename": self.mode == MOVE and same_volume(src, dst.parent), "size": src.stat().st_size}
+        if self.mode == LINK:
+            entry["link"] = True
         self.entries.append(entry)
         self.save()                                   # intent is on disk before anything happens
-        if entry["rename"]:
+        if self.mode == LINK:
+            os.symlink(src.resolve(), dst)
+            entry["state"] = "done"
+        elif entry["rename"]:
             os.rename(src, dst)
             entry["state"] = "done"
         else:
@@ -163,7 +172,11 @@ class Journal:
                 continue
             src, dst = Path(e["src"]), Path(e["dst"])
             try:
-                if self.mode == COPY or src.exists():
+                if e.get("link"):
+                    if dst.is_symlink():                  # only ever the link davigen made, never a real file
+                        dst.unlink()
+                        removed += 1
+                elif self.mode == COPY or src.exists():
                     # original is still in place: just remove whatever was created at the destination
                     for p in (dst, dst.with_name(dst.name + ".part")):
                         if p.exists():
@@ -211,7 +224,7 @@ def recover_pending() -> list[dict]:
 
 def space_needed(files: list[Path], dest: Path, mode: str) -> int:
     """Bytes the destination volume must be able to take."""
-    if mode == LEAVE:
+    if mode in (LEAVE, LINK):
         return 0
     return sum(f.stat().st_size + sum(s.stat().st_size for s in sidecars(f))
                for f in files if not (mode == MOVE and same_volume(f, dest)))
