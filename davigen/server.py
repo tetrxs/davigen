@@ -52,7 +52,7 @@ class App:
         self.catalog_state: dict = {"running": False, "done": 0, "total": 0, "what": "", "error": ""}
         self.recovery: list[dict] = []
         self.run_recovery: list[dict] = []
-        self.resolve_lock = threading.Lock()
+        self.resolve_lock = threading.RLock()       # re-entrant: a route may call a helper that locks too
         self.updater = update.Updater()
         self._records: dict[Path, tuple[float, dict]] = {}
         # before | after pictures: made one at a time, outside the Resolve lock, the newest request first
@@ -160,9 +160,9 @@ class App:
         return {"ok": True}
 
     def _known_ids(self) -> set[str]:
+        """Assets the open project has (called from /api/scan, which holds the Resolve lock)."""
         try:
-            with self.resolve_lock:
-                base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
+            base = creator.project_base(self.resolve.GetProjectManager().GetCurrentProject())
             return {a.id for a in pl_assets.AssetStore(base) if not a.removed}
         except Exception:  # noqa: BLE001 - no davigen project open
             return set()

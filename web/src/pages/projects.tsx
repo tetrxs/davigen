@@ -1,12 +1,23 @@
 import * as React from "react"
-import { FolderOpenIcon, FolderSearchIcon, PlayIcon, PlusIcon } from "lucide-react"
+import { FolderOpenIcon, FolderSearchIcon, PlayIcon, PlusIcon, Trash2Icon } from "lucide-react"
 
 import { Page, PageHeader } from "@/components/page-header"
 import { Poster } from "@/components/poster"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { api, fmtDate, fmtFormat, type Project } from "@/lib/api"
@@ -14,7 +25,9 @@ import { notify, useApp } from "@/lib/app-state"
 import { cn } from "@/lib/utils"
 
 export function ProjectGallery({ limit }: { limit?: number }) {
-  const { navigate, running, projects, openProject, opening, reloadProjects } = useApp()
+  const { navigate, running, projects, openProject, opening, reloadProjects, startFlow } = useApp()
+  const [doomed, setDoomed] = React.useState<Project | null>(null)
+  const [typed, setTyped] = React.useState("")
   React.useEffect(() => {
     if (projects !== null) reloadProjects()      // fresh posters and "open" state when the page shows
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -52,8 +65,35 @@ export function ProjectGallery({ limit }: { limit?: number }) {
     )
 
   const list = limit ? projects.slice(0, limit) : projects
+  const remove = async () => {
+    if (!doomed) return
+    await startFlow("/api/project/delete", `Deleting ${doomed.name}`, "delete", { folder: doomed.folder, confirm: typed })
+    setDoomed(null)
+    reloadProjects()
+  }
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <>
+      <AlertDialog open={!!doomed} onOpenChange={(o) => !o && setDoomed(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {doomed?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The project is deleted in Resolve and its whole folder – footage in 01_MEDIA, proxies, exports – goes to
+              the Trash, with a last export of the Resolve project inside, so Finder → Trash → Put Back restores
+              everything. Files outside the folder (left in place, or behind links) are not touched. Type the name to
+              confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={doomed?.name} autoFocus spellCheck={false} />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" disabled={typed !== doomed?.name} onClick={remove}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {list.map((p, i) => {
         const clips = (p.groups ?? []).reduce((n, g) => n + (g.clips || 0), 0)
         return (
@@ -95,11 +135,25 @@ export function ProjectGallery({ limit }: { limit?: number }) {
                 <FolderOpenIcon data-icon="inline-start" />
                 Finder
               </Button>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="ml-auto text-muted-foreground hover:text-destructive"
+                aria-label={`Delete ${p.name}`}
+                disabled={running}
+                onClick={() => {
+                  setTyped("")
+                  setDoomed(p)
+                }}
+              >
+                <Trash2Icon />
+              </Button>
             </CardFooter>
           </Card>
         )
       })}
-    </div>
+      </div>
+    </>
   )
 }
 

@@ -29,6 +29,7 @@ class Collect(Action):
     id, label, kinds, mandatory = "collect", "Collect linked files", ALL_KINDS, False
     about = "Replace the links in the project by the files themselves – Resolve keeps working without relinking."
     after = ("import_media",)
+    on_import = False                               # only makes sense for files already linked
     on_error = "skip"
     inputs = (Input("how", "How", "choice", [Option("copy", "Copy", "the original stays where it is"),
                                             Option("move", "Move", "the original is removed after checking")],

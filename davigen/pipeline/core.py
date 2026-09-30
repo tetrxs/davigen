@@ -73,6 +73,7 @@ class Action:
     scope: str = ASSET                              # project: runs once; asset: runs for assets of `kinds`
     kinds: frozenset[str] = frozenset()
     mandatory: bool = True                          # part of every import, or chosen by the user
+    on_import: bool = True                          # a chosen action offered in the import (else: assets page only)
     after: tuple[str, ...] = ()                     # actions that must run first (when they are in the run)
     inputs: tuple[Input, ...] = ()
     form: str = ""                                  # a custom form for all inputs in the UI (else drawn generically)
@@ -114,7 +115,7 @@ class Action:
 
     def describe(self) -> dict:
         return {"id": self.id, "label": self.label, "about": self.about, "scope": self.scope,
-                "kinds": sorted(self.kinds), "mandatory": self.mandatory, "form": self.form,
+                "kinds": sorted(self.kinds), "mandatory": self.mandatory, "on_import": self.on_import, "form": self.form,
                 "inputs": [i.as_dict() for i in self.inputs]}
 
 

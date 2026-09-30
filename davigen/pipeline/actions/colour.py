@@ -3,6 +3,7 @@ structure, and – when chosen – a Basic correction (the existing one, unchang
 
 from __future__ import annotations
 
+import re
 from functools import cached_property
 
 from ... import color, filesystem, formats
@@ -186,7 +187,9 @@ class _Sub:
 
     def _at(self, sub: str, detail: str) -> None:
         n = self.order.index(sub) if sub in self.order else 0
-        self.progress(fraction=n / len(self.order), detail=f"{self.labels.get(sub, sub)}"
+        inner = re.match(r"\s*(\d+)\s*/\s*(\d+)", detail or "")      # "12/57 · P1000070"
+        part = int(inner.group(1)) / max(1, int(inner.group(2))) if inner else 0.0
+        self.progress(fraction=(n + min(part, 1.0)) / len(self.order), detail=f"{self.labels.get(sub, sub)}"
                       + (f" · {detail}" if detail else ""))
 
     def start(self, sub: str, detail: str = ""):

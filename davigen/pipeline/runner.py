@@ -185,6 +185,9 @@ class Run:
         return prefix + note
 
     def _estimate(self) -> None:
+        # an asset action that applies to none of this run's assets isn't a step at all
+        self.steps = [s for s in self.steps if s.action.scope == PROJECT
+                      or any(s.action.applies(self.ctx, a) for a in self.assets)]
         for step in self.steps:
             units, _ = self._units(step, planning=True)
             step.total = len(units)

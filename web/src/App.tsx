@@ -11,7 +11,7 @@ import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppProvider, useApp, type Route } from "@/lib/app-state"
 import { BasicPage } from "@/pages/basic"
-import { EditPage } from "@/pages/edit"
+import { AssetsPage } from "@/pages/assets"
 import { OverviewPage } from "@/pages/overview"
 import { ProjectsPage } from "@/pages/projects"
 import { ReportPage } from "@/pages/report"
@@ -23,10 +23,10 @@ const TITLES: Record<Route, string> = {
   overview: "Overview",
   projects: "Projects",
   new: "New project",
-  add: "Add footage",
+  add: "Add files",
   basic: "Basic correction",
   report: "Report",
-  edit: "Edit assist",
+  assets: "Assets",
   settings: "Settings",
   run: "Activity",
 }
@@ -78,7 +78,7 @@ function Shell() {
     add: <WizardPage mode="add" />,
     basic: <BasicPage />,
     report: <ReportPage />,
-    edit: <EditPage />,
+    assets: <AssetsPage />,
     settings: <SettingsPage />,
     run: <RunPage />,
   }[route]

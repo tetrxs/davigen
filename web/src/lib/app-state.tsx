@@ -12,11 +12,11 @@ export type Route =
   | "add"
   | "basic"
   | "report"
-  | "edit"
+  | "assets"
   | "settings"
   | "run"
 
-const ROUTES: Route[] = ["overview", "projects", "new", "add", "basic", "report", "edit", "settings", "run"]
+const ROUTES: Route[] = ["overview", "projects", "new", "add", "basic", "report", "assets", "settings", "run"]
 
 function readRoute(): Route {
   const r = location.hash.replace(/^#\/?/, "") as Route
@@ -25,7 +25,7 @@ function readRoute(): Route {
 
 // ------------------------------------------------------------------ flows (a job on the server, polled)
 
-export type FlowKind = "basic" | "evaluate" | "edit" | "preview" | "create" | "add" | "reset" | "maintenance"
+export type FlowKind = "basic" | "evaluate" | "pipeline" | "create" | "add" | "reset" | "maintenance" | "delete"
 
 export type Run = {
   title: string
@@ -78,6 +78,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = React.useState<Project[] | null>(null)
   const [opening, setOpening] = React.useState("")
   const poll = React.useRef<number | undefined>(undefined)
+  const asked = React.useRef("")
 
   React.useEffect(() => {
     const onHash = () => setRoute(readRoute())
@@ -166,10 +167,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return
     }
     setRun((r) => (r ? { ...r, progress: p, done: p.done, error: p.error } : r))
+    const waiting = p.steps.find((s) => s.state === ("input" as string))
+    if (waiting && asked.current !== waiting.id) {
+      asked.current = waiting.id
+      notify(`${waiting.label} needs your choice`, "The run waits on the Activity page.", "warning")
+    }
     if (!p.done) {
       poll.current = window.setTimeout(pollProgress, 500)
       return
     }
+    asked.current = ""
     if (p.error) notify("Stopped", p.error.split("\n")[0], "error")
     else notify("Done", undefined, "success")
     reloadCurrent()

@@ -169,7 +169,7 @@ def _entry_for(base: Path, path: str) -> dict:
 
 
 def clip_frame(base: Path, path: str, seconds: float, width: int = 320) -> bytes:
-    """PNG of a camera file at `seconds`, graded like DAVIGEN_AUTO when it has been corrected (Edit Assist's shots)."""
+    """PNG of a camera file at `seconds`, graded like DAVIGEN_AUTO when it has been corrected."""
     try:
         stamp_src = f"{Path(path).stat().st_mtime}"
     except OSError as e:

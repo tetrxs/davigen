@@ -25,10 +25,6 @@ export const query = (params: Record<string, string | number | undefined>) =>
   ).toString()
 
 // Pictures can't send the token header, so it goes into the query string.
-export const video = {
-  preview: (v: number | string) => `/edit/preview.mp4?${query({ v, t: TOKEN })}`,
-}
-
 export const img = {
   poster: (folder: string, i = 0, w = 640) => `/project/poster.png?${query({ folder, i, w, t: TOKEN })}`,
   thumb: (id: string) => `/basic/thumb.png?${query({ id, t: TOKEN })}`,
@@ -54,23 +50,108 @@ export type CatalogInfo = {
 }
 
 export type Recovery = { restored: number; files: number; removed: number; problems: string[] }
+export type RunRecovery = { title: string; undone: number; problems: string[]; folder: string }
+
+// ------------------------------------------------------------------ the pipeline (davigen/pipeline)
+
+export type TransferMode = "move" | "copy" | "link" | "leave"
+export type InputOption = { value: string; label: string; about: string }
+export type InputSpec = {
+  id: string
+  label: string
+  kind: "choice" | "multi" | "toggle" | "number" | "text" | "custom"
+  options: InputOption[]
+  default: unknown
+  about: string
+  widget: string
+}
+export type ActionSpec = {
+  id: string
+  label: string
+  about: string
+  scope: "project" | "asset"
+  kinds: string[]
+  mandatory: boolean
+  on_import: boolean
+  form: string
+  inputs: InputSpec[]
+}
+export type Values = Record<string, unknown>
+
+export type PipelineStep = {
+  id: string
+  label: string
+  about: string
+  state: "pending" | "input" | "running" | "done" | "skipped" | "error" | "stopped"
+  done: number
+  total: number
+  already: number
+  current: string
+  detail: string
+  fraction: number | null
+  elapsed: number
+  remaining: number
+  errors: string[]
+  inputs: InputSpec[]
+  form: string
+  values: Values
+}
+
+export type AssetRow = {
+  id: string
+  name: string
+  kind: string
+  path: string
+  mode: string
+  size: number
+  added: string
+  created: string
+  camera: string
+  group: string
+  removed: boolean
+  missing: boolean
+  link: boolean
+  info: Record<string, unknown> & { duration?: number; music?: { tempo: number; markers: number } }
+  status: Record<string, "done" | "todo" | "n/a" | "stale" | "?">
+}
+
+export type AssetsTable = {
+  ok: boolean
+  error?: string
+  live?: boolean
+  assets: AssetRow[]
+  actions: { id: string; label: string; kinds: string[]; mandatory: boolean }[]
+}
+
+export type ScanAsset = { id: string; name: string; source: string; size: number; info: Record<string, number>; camera: string }
+export type ScanKind = { kind: string; label: string; count: number; size: number; assets: ScanAsset[] }
 
 export type Info = {
   version: string
   resolve: string
   studio: boolean
   format: { default: Format; aspects: Aspect[]; fps: number[]; free_max: number[]; deliveries: Delivery[] }
-  transfer: "move" | "copy" | "leave"
   basic_default: boolean
   default_root: string
   profiles: { id: string; label: string }[]
   shorts: Record<string, string>
-  settings: { online_sources: boolean | null; default_root?: string }
+  settings: {
+    online_sources: boolean | null
+    default_root?: string
+    transfer?: TransferMode
+    default_actions?: string[]
+    song_markers?: string[]
+  }
   home: string
   cameras: { key: string; name: string; brand: string; profiles: string[]; user: boolean }[]
   brands: string[]
   catalog: CatalogInfo
   recovery: Recovery[]
+  run_recovery: RunRecovery[]
+  transfer: TransferMode
+  actions: ActionSpec[]
+  defaults: { actions: string[]; song_markers: string[] | null }
+  kinds: Record<string, string>
 }
 
 export type Source = { kind: string; label: string; detail: string; needs_online?: boolean }
@@ -130,6 +211,9 @@ export type Scan = {
   done: number
   total: number
   groups: ScanGroup[]
+  kinds: ScanKind[]
+  known?: string[]
+  count?: number
   errors: { name: string; error: string }[]
   suggest?: { width: number; height: number; fps: number; aspect: string; source: string; clamped: boolean }
   size?: number
@@ -182,7 +266,12 @@ export type EvalSummary = {
 }
 
 export type Progress = {
-  steps: Step[]
+  kind?: "pipeline"
+  title?: string
+  state?: string
+  remaining?: number
+  elapsed?: number
+  steps: (Step | PipelineStep)[]
   warnings: string[]
   manual: string[]
   done: boolean
@@ -193,10 +282,8 @@ export type Progress = {
     summary?: EvalSummary
     project?: string
     folder?: string
-    selects_timeline?: string
-    rough_cut?: string
     removed?: number
-    preview?: string
+    deleted?: string
   }
   live: Live[]
 }
@@ -261,6 +348,19 @@ export function fmtDate(iso?: string) {
 export function fmtDuration(s: number) {
   const m = Math.floor(s / 60)
   return m ? `${m} min` : `${Math.round(s)} s`
+}
+
+// time left, e.g. "about 3 min", "about 40 s", "a moment"
+export function fmtRemaining(s: number) {
+  if (!s || s < 3) return "a moment"
+  if (s < 60) return `about ${Math.round(s / 5) * 5 || 5} s`
+  if (s < 3600) return `about ${Math.round(s / 60)} min`
+  return `about ${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`
+}
+
+export function fmtClock(s: number) {
+  s = Math.max(0, Math.round(s))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
 }
 
 // "12/57 · P1000070" or "rendering 40 frames · 35 %" → 0–1
